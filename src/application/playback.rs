@@ -128,4 +128,8 @@ impl PlaybackUseCase {
     pub fn has_sink(&self) -> bool {
         self.audio.has_sink()
     }
+
+    pub fn get_spectrum(&self) -> [f32; 16] {
+        self.audio.get_spectrum()
+    }
 }

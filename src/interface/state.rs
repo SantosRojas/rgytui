@@ -6,11 +6,20 @@ pub enum ActiveScreen {
     Search,
     Player,
     Help,
+    Settings,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Focus {
+    SearchInput,
+    SearchResults,
+    QueueList,
 }
 
 #[derive(Clone, Debug)]
 pub struct UiState {
     pub active_screen: ActiveScreen,
+    pub focus: Focus,
     pub search_query: String,
     pub search_results: Vec<Song>,
     pub is_searching: bool,
@@ -20,16 +29,23 @@ pub struct UiState {
     pub duration: f64,
     pub volume: f32,
     pub status_message: Option<String>,
-    pub focus_search: bool,
     pub selected_index: usize,
+    pub queue_selected: usize,
     pub error_message: Option<String>,
     pub loading_status: Option<String>,
+    pub queue_songs: Vec<Song>,
+    pub queue_current: usize,
+    pub spectrum: [f32; 16],
+    pub theme_name: String,
+    pub accent_color: String,
+    pub default_search_limit: usize,
 }
 
 impl Default for UiState {
     fn default() -> Self {
         Self {
             active_screen: ActiveScreen::Search,
+            focus: Focus::SearchInput,
             search_query: String::new(),
             search_results: Vec::new(),
             is_searching: false,
@@ -39,10 +55,16 @@ impl Default for UiState {
             duration: 0.0,
             volume: 0.8,
             status_message: None,
-            focus_search: true,
             selected_index: 0,
+            queue_selected: 0,
             error_message: None,
             loading_status: None,
+            queue_songs: Vec::new(),
+            queue_current: 0,
+            spectrum: [0.0; 16],
+            theme_name: "dark".into(),
+            accent_color: "#00ffff".into(),
+            default_search_limit: 10,
         }
     }
 }

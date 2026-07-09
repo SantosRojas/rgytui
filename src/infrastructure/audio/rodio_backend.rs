@@ -7,6 +7,9 @@ use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
 use crate::domain::error::DomainError;
 use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
+use crate::infrastructure::audio::spectrum::SpectrumSource;
+
+const SPECTRUM_BANDS: usize = 16;
 
 pub struct RodioBackend {
     _handle: rodio::MixerDeviceSink,
@@ -16,6 +19,7 @@ pub struct RodioBackend {
     current_song: Arc<Mutex<Option<Song>>>,
     position: Arc<Mutex<f64>>,
     duration: Arc<Mutex<f64>>,
+    spectrum_bands: Arc<Mutex<[f32; SPECTRUM_BANDS]>>,
 }
 
 impl RodioBackend {
@@ -33,6 +37,7 @@ impl RodioBackend {
             current_song: Arc::new(Mutex::new(None)),
             position: Arc::new(Mutex::new(0.0)),
             duration: Arc::new(Mutex::new(0.0)),
+            spectrum_bands: Arc::new(Mutex::new([0.0; SPECTRUM_BANDS])),
         })
     }
 
@@ -46,8 +51,11 @@ impl RodioBackend {
             .unwrap_or(Duration::from_secs(0))
             .as_secs_f64();
 
+        let (source, bands) = SpectrumSource::new(decoder);
+        self.spectrum_bands = bands;
+
         self.player.stop();
-        self.player.append(decoder);
+        self.player.append(source);
         self.player.set_volume(*self.volume.lock().unwrap());
 
         *self.state.lock().unwrap() = PlayerState::Playing;
@@ -56,6 +64,10 @@ impl RodioBackend {
         *self.position.lock().unwrap() = 0.0;
 
         Ok(())
+    }
+
+    pub fn get_spectrum(&self) -> [f32; SPECTRUM_BANDS] {
+        *self.spectrum_bands.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn pause(&mut self) -> Result<(), DomainError> {

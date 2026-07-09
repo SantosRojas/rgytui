@@ -66,9 +66,12 @@ impl Playlist {
     pub fn remove(&mut self, index: usize) {
         if index < self.songs.len() {
             let was_before_current = index < self.current_index;
+            let was_current = index == self.current_index;
             self.songs.remove(index);
             if self.songs.is_empty() {
                 self.current_index = 0;
+            } else if was_current {
+                self.current_index = self.current_index.min(self.songs.len().saturating_sub(1));
             } else if was_before_current {
                 self.current_index = self.current_index.saturating_sub(1);
             } else if self.current_index >= self.songs.len() {
@@ -77,7 +80,35 @@ impl Playlist {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.songs.clear();
+        self.current_index = 0;
+    }
+
+    pub fn len(&self) -> usize {
+        self.songs.len()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.songs.is_empty()
+    }
+
+    pub fn songs(&self) -> &[Song] {
+        &self.songs
+    }
+
+    pub fn set_current_index(&mut self, index: usize) {
+        if index < self.songs.len() {
+            self.current_index = index;
+        }
+    }
+
+    pub fn insert(&mut self, index: usize, song: Song) {
+        if index <= self.songs.len() {
+            self.songs.insert(index, song);
+            if index <= self.current_index {
+                self.current_index += 1;
+            }
+        }
     }
 }

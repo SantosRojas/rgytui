@@ -11,6 +11,8 @@ pub struct AppSettings {
     pub volume: f32,
     pub audio_mode: bool,
     pub default_search_limit: usize,
+    pub theme: String,
+    pub accent_color: String,
 }
 
 impl Default for AppSettings {
@@ -19,6 +21,8 @@ impl Default for AppSettings {
             volume: 0.8,
             audio_mode: true,
             default_search_limit: 10,
+            theme: "dark".into(),
+            accent_color: "#00ffff".into(),
         }
     }
 }

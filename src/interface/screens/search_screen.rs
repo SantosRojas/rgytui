@@ -5,9 +5,10 @@ use ratatui::widgets::{Block, Borders, List, ListItem};
 use ratatui::Frame;
 
 use crate::interface::components::input_box::InputBox;
-use crate::interface::state::UiState;
+use crate::interface::state::{Focus, UiState};
+use crate::interface::theme::Theme;
 
-pub fn render(frame: &mut Frame, area: Rect, state: &UiState) {
+pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(1)])
@@ -27,16 +28,17 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(title)
-                .border_style(if state.focus_search {
-                    Style::default().fg(Color::Cyan)
+                .border_style(if state.focus == Focus::SearchInput {
+                    Style::default().fg(theme.accent)
                 } else {
-                    Style::default()
+                    Style::default().fg(Color::DarkGray)
                 }),
         )
         .value(&state.search_query);
 
     frame.render_widget(input_box, search_area);
 
+    let count_text = format!("Results ({})", state.search_results.len());
     let items: Vec<ListItem> = state
         .search_results
         .iter()
@@ -47,7 +49,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState) {
                 Span::styled(
                     &song.title,
                     Style::default()
-                        .fg(Color::White)
+                        .fg(if i == state.selected_index { theme.highlight_fg } else { theme.text })
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(" — "),
@@ -60,27 +62,21 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState) {
             ])];
 
             ListItem::new(content).style(if i == state.selected_index {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().bg(theme.highlight_bg).fg(theme.highlight_fg)
             } else {
                 Style::default()
             })
         })
         .collect();
 
-    let results_block = Block::default()
-        .borders(Borders::ALL)
-        .title("Results")
-        .border_style(if !state.focus_search && state.active_screen == crate::interface::state::ActiveScreen::Search { Style::default().fg(Color::Cyan) } else { Style::default() });
+    let border_color = if state.focus == Focus::SearchResults {
+        theme.accent
+    } else {
+        Color::DarkGray
+    };
 
-    let results_list = List::new(items).block(results_block).highlight_style(
-        Style::default()
-            .fg(Color::Black)
-            .bg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    );
+    let results_list = List::new(items)
+        .block(Block::default().borders(Borders::ALL).title(count_text).border_style(Style::default().fg(border_color)));
 
     frame.render_widget(results_list, results_area);
 }

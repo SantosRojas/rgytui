@@ -14,7 +14,7 @@ use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
 use crate::infrastructure::config::store::ConfigStore;
 use crate::interface::app_ui;
-use crate::interface::state::{ActiveScreen, UiState};
+use crate::interface::state::{ActiveScreen, Focus, UiState};
 use crate::shared::event::AppEvent;
 
 pub struct App {
@@ -55,8 +55,12 @@ impl App {
             }
         });
 
+        let settings = config.settings();
         let ui = UiState {
-            volume: config.settings().volume.clamp(0.0, 1.0),
+            volume: settings.volume.clamp(0.0, 1.0),
+            theme_name: settings.theme.clone(),
+            accent_color: settings.accent_color.clone(),
+            default_search_limit: settings.default_search_limit,
             ..UiState::default()
         };
 
@@ -79,6 +83,15 @@ impl App {
         let backend = CrosstermBackend::new(std::io::stdout());
         Terminal::new(backend)
     }
+
+    fn sync_ui_queue(&mut self) {
+        self.ui.queue_songs = self.playlist.songs().to_vec();
+        if let Some(song) = self.playlist.playlist().current_song()
+            && let Some(pos) = self.ui.queue_songs.iter().position(|s| s.id == song.id)
+        {
+            self.ui.queue_current = pos;
+        }
+    }
 }
 
 struct TerminalGuard;
@@ -93,7 +106,6 @@ impl Drop for TerminalGuard {
 }
 
 impl App {
-
     fn spawn_search(&self, query: String, limit: usize) {
         let tx = self.event_tx.clone();
         let search_uc = self.search.clone();
@@ -114,6 +126,7 @@ impl App {
         let _guard = TerminalGuard;
 
         loop {
+            self.sync_ui_queue();
             terminal.draw(|frame| {
                 app_ui::render(frame, &self.ui, self.playback.mode());
             })?;
@@ -121,7 +134,6 @@ impl App {
             if let Some(song) = self.pending_play.take() {
                 let song_name = song.title.clone();
                 self.ui.loading_status = Some(format!("Downloading {}...", song_name));
-                // Drain any stale events from previous playback
                 while self.event_rx.try_recv().is_ok() {}
                 match self.playback.play(&song).await {
                     Ok(()) => {
@@ -172,17 +184,19 @@ impl App {
 
     fn on_exit(&mut self) {
         self.playback.stop().ok();
-        self.config.settings_mut().volume = self.playback.volume();
+        let s = self.config.settings_mut();
+        s.volume = self.playback.volume();
+        s.theme = self.ui.theme_name.clone();
+        s.accent_color = self.ui.accent_color.clone();
+        s.default_search_limit = self.ui.default_search_limit;
         self.config.save_settings().ok();
-        if let Err(e) = self
-            .config
-            .save_playlist(self.playlist.playlist())
-        {
+        if let Err(e) = self.config.save_playlist(self.playlist.playlist()) {
             tracing::warn!("Failed to save playlist: {}", e);
         }
     }
 
     fn update_progress(&mut self) {
+        self.ui.spectrum = self.playback.get_spectrum();
         let state = self.playback.state();
         if let PlayerState::Playing | PlayerState::Paused = state {
             self.ui.progress = self.playback.current_position();
@@ -206,7 +220,6 @@ impl App {
     fn queue_play(&mut self, song: Song) {
         self.ui.current_song = Some(song.clone());
         self.ui.player_state = PlayerState::Loading;
-        self.ui.active_screen = ActiveScreen::Player;
         self.pending_play = Some(song);
     }
 
@@ -224,48 +237,125 @@ impl App {
             return Ok(false);
         }
 
+        if self.ui.active_screen == ActiveScreen::Settings {
+            match key.code {
+                KeyCode::Esc => {
+                    self.ui.active_screen = ActiveScreen::Search;
+                    self.ui.focus = Focus::SearchInput;
+                }
+                KeyCode::Up => {
+                    // handled by settings_screen state; for now just close
+                }
+                _ => {}
+            }
+            return Ok(false);
+        }
+
+        if self.ui.active_screen == ActiveScreen::Player {
+            match key.code {
+                KeyCode::Esc | KeyCode::Tab => {
+                    self.ui.active_screen = ActiveScreen::Search;
+                    self.ui.focus = Focus::SearchInput;
+                }
+                KeyCode::Char('q') => return Ok(true),
+                KeyCode::Char(' ') => match self.playback.state() {
+                    PlayerState::Playing => {
+                        self.playback.pause().ok();
+                        self.ui.player_state = PlayerState::Paused;
+                    }
+                    PlayerState::Paused => {
+                        self.playback.resume().ok();
+                        self.ui.player_state = PlayerState::Playing;
+                    }
+                    _ => {}
+                },
+                KeyCode::Char('s') => {
+                    self.pending_play = None;
+                    self.playback.stop().ok();
+                    self.ui.player_state = PlayerState::Stopped;
+                    self.ui.progress = 0.0;
+                }
+                KeyCode::Char('=') | KeyCode::Char('+') => {
+                    let vol = (self.playback.volume() + 0.05).min(1.0);
+                    self.playback.set_volume(vol);
+                    self.ui.volume = vol;
+                }
+                KeyCode::Char('-') | KeyCode::Char('_') => {
+                    let vol = (self.playback.volume() - 0.05).max(0.0);
+                    self.playback.set_volume(vol);
+                    self.ui.volume = vol;
+                }
+                _ => {}
+            }
+            return Ok(false);
+        }
+
         match key.code {
             KeyCode::Tab => {
-                if self.ui.active_screen == ActiveScreen::Search {
-                    self.ui.focus_search = !self.ui.focus_search;
-                }
+                self.ui.focus = match self.ui.focus {
+                    Focus::SearchInput => Focus::SearchResults,
+                    Focus::SearchResults => Focus::QueueList,
+                    Focus::QueueList => Focus::SearchInput,
+                };
             }
-            KeyCode::Up => {
-                if !self.ui.search_results.is_empty() {
+            KeyCode::Up => match self.ui.focus {
+                Focus::SearchResults => {
                     self.ui.selected_index = self.ui.selected_index.saturating_sub(1);
                 }
-            }
-            KeyCode::Down => {
-                if !self.ui.search_results.is_empty() {
-                    self.ui.selected_index =
-                        (self.ui.selected_index + 1).min(self.ui.search_results.len().saturating_sub(1));
+                Focus::QueueList => {
+                    if !self.ui.queue_songs.is_empty() {
+                        self.ui.queue_selected = self.ui.queue_selected.saturating_sub(1);
+                    }
                 }
-            }
-            KeyCode::Enter => {
-                if self.ui.active_screen == ActiveScreen::Search {
-                    if self.ui.focus_search && !self.ui.search_query.is_empty() {
+                _ => {}
+            },
+            KeyCode::Down => match self.ui.focus {
+                Focus::SearchResults => {
+                    self.ui.selected_index = (self.ui.selected_index + 1)
+                        .min(self.ui.search_results.len().saturating_sub(1));
+                }
+                Focus::QueueList => {
+                    if !self.ui.queue_songs.is_empty() {
+                        self.ui.queue_selected = (self.ui.queue_selected + 1)
+                            .min(self.ui.queue_songs.len().saturating_sub(1));
+                    }
+                }
+                _ => {}
+            },
+            KeyCode::Enter => match self.ui.focus {
+                Focus::SearchInput => {
+                    if !self.ui.search_query.is_empty() {
                         self.ui.is_searching = true;
                         self.ui.search_results.clear();
                         let query = self.ui.search_query.clone();
-                        self.spawn_search(query, 10);
-                    } else if !self.ui.search_results.is_empty() {
-                        self.schedule_play_selected();
+                        self.spawn_search(query, self.ui.default_search_limit);
                     }
                 }
-            }
-            KeyCode::Esc => {
-                if self.ui.focus_search {
-                    self.ui.focus_search = false;
-                } else {
-                    self.ui.active_screen = ActiveScreen::Search;
+                Focus::SearchResults => {
+                    self.schedule_play_selected();
                 }
+                Focus::QueueList => {
+                    let idx = self.ui.queue_selected;
+                    if idx < self.ui.queue_songs.len() {
+                        self.playlist.set_current_index(idx);
+                        if let Some(song) = self.playlist.current_song_cloned() {
+                            self.queue_play(song);
+                        }
+                    }
+                }
+            },
+            KeyCode::Esc => {
+                self.ui.focus = match self.ui.focus {
+                    Focus::SearchInput | Focus::SearchResults => Focus::SearchInput,
+                    Focus::QueueList => Focus::SearchResults,
+                };
             }
             KeyCode::Backspace => {
-                if self.ui.focus_search {
+                if self.ui.focus == Focus::SearchInput {
                     self.ui.search_query.pop();
                 }
             }
-            KeyCode::Char(c) if self.ui.focus_search => {
+            KeyCode::Char(c) if self.ui.focus == Focus::SearchInput => {
                 if self.ui.search_query.len() < 200 {
                     self.ui.search_query.push(c);
                 }
@@ -279,7 +369,7 @@ impl App {
                 };
             }
             KeyCode::Char('/') => {
-                self.ui.focus_search = true;
+                self.ui.focus = Focus::SearchInput;
                 self.ui.search_query.clear();
                 self.ui.active_screen = ActiveScreen::Search;
             }
@@ -326,13 +416,28 @@ impl App {
                 self.playback.toggle_mode();
             }
             KeyCode::Char('a') => {
-                if !self.ui.search_results.is_empty() {
+                if self.ui.focus == Focus::SearchResults && !self.ui.search_results.is_empty() {
                     let idx = self.ui.selected_index;
                     if let Some(song) = self.ui.search_results.get(idx) {
                         self.playlist.add(song.clone());
                         self.ui.status_message = Some(format!("Added '{}' to queue", song.title));
                     }
                 }
+            }
+            KeyCode::Char('d') => {
+                if self.ui.focus == Focus::QueueList && !self.ui.queue_songs.is_empty() {
+                    let idx = self.ui.queue_selected;
+                    self.playlist.remove(idx);
+                }
+            }
+            KeyCode::Char('C') | KeyCode::Char('c') => {
+                if self.ui.focus == Focus::QueueList {
+                    self.playlist.clear();
+                }
+            }
+            KeyCode::Char('t') => {
+                self.ui.active_screen = ActiveScreen::Settings;
+                self.ui.focus = Focus::SearchInput;
             }
             _ => {}
         }
@@ -349,7 +454,9 @@ impl App {
             Some(s) => s.clone(),
             None => return,
         };
+        let pos = self.playlist.len();
         self.playlist.add(song.clone());
+        self.playlist.set_current_index(pos);
         self.queue_play(song);
     }
 
@@ -359,7 +466,7 @@ impl App {
                 self.ui.search_results = songs;
                 self.ui.is_searching = false;
                 self.ui.selected_index = 0;
-                self.ui.focus_search = false;
+                self.ui.focus = Focus::SearchResults;
             }
             AppEvent::SearchError(err) => {
                 self.ui.is_searching = false;
@@ -368,7 +475,6 @@ impl App {
             AppEvent::PlaybackStarted(song) => {
                 self.ui.current_song = Some(song);
                 self.ui.player_state = PlayerState::Loading;
-                self.ui.active_screen = ActiveScreen::Player;
                 self.ui.is_searching = false;
             }
             AppEvent::PlaybackProgress(_, _) => {}
