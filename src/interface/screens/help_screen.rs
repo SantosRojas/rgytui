@@ -32,6 +32,12 @@ pub fn render(frame: &mut Frame, area: Rect) {
         Line::from("  v          Toggle audio / video mode"),
         Line::from(""),
         Line::from(vec![
+            Span::styled("Queue", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from("  d          Remove selected from queue"),
+        Line::from("  c          Clear queue"),
+        Line::from(""),
+        Line::from(vec![
             Span::styled("Search", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
         ]),
         Line::from("  /          Search YouTube"),
@@ -40,8 +46,10 @@ pub fn render(frame: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("General", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
         ]),
+        Line::from("  Esc        Go back"),
         Line::from("  ?          Toggle help"),
         Line::from("  q          Quit"),
+        Line::from("  Ctrl+Q     Quit (from anywhere, even while typing)"),
         Line::from(""),
         Line::from(vec![
             Span::styled("Press any key to close help", Style::default().fg(Color::DarkGray)),

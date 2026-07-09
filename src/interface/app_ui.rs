@@ -54,7 +54,8 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode) {
     let status_bar = StatusBar::new()
         .player_state(state.player_state)
         .audio_mode(audio_mode)
-        .volume(state.volume);
+        .volume(state.volume)
+        .focus(state.focus);
     frame.render_widget(status_bar, status_area);
 
     if let Some(ref err) = state.error_message {
@@ -129,7 +130,7 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
                 .split(inner_area);
             frame.render_widget(paragraph, sub[0]);
 
-            let spectrum = crate::interface::components::spectrum::SpectrumWidget::new(state.spectrum, theme.accent).no_block();
+            let spectrum = crate::interface::components::spectrum::SpectrumWidget::new(state.spectrum.bands, state.spectrum.peaks, theme.accent).no_block();
             frame.render_widget(spectrum, sub[1]);
         } else {
             frame.render_widget(paragraph, inner_area);

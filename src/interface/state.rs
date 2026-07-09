@@ -1,5 +1,6 @@
 use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
+use crate::infrastructure::audio::spectrum::SpectrumFrame;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ActiveScreen {
@@ -35,7 +36,7 @@ pub struct UiState {
     pub loading_status: Option<String>,
     pub queue_songs: Vec<Song>,
     pub queue_current: usize,
-    pub spectrum: [f32; 16],
+    pub spectrum: SpectrumFrame,
     pub theme_name: String,
     pub accent_color: String,
     pub default_search_limit: usize,
@@ -61,7 +62,7 @@ impl Default for UiState {
             loading_status: None,
             queue_songs: Vec::new(),
             queue_current: 0,
-            spectrum: [0.0; 16],
+            spectrum: SpectrumFrame::default(),
             theme_name: "dark".into(),
             accent_color: "#00ffff".into(),
             default_search_limit: 10,

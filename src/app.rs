@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{enable_raw_mode, EnterAlternateScreen};
 use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
@@ -232,32 +232,62 @@ impl App {
             self.dismiss_error();
         }
 
+        // Universal keys — always work regardless of screen or focus
+        if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Ok(true);
+        }
+
+        match key.code {
+            KeyCode::Char('?') => {
+                self.ui.active_screen = if self.ui.active_screen == ActiveScreen::Help {
+                    ActiveScreen::Search
+                } else {
+                    ActiveScreen::Help
+                };
+                return Ok(false);
+            }
+            KeyCode::Esc => {
+                match self.ui.active_screen {
+                    ActiveScreen::Help | ActiveScreen::Settings | ActiveScreen::Player => {
+                        self.ui.active_screen = ActiveScreen::Search;
+                        self.ui.focus = Focus::SearchInput;
+                    }
+                    ActiveScreen::Search => {
+                        if self.ui.focus == Focus::SearchInput && !self.ui.search_query.is_empty() {
+                            self.ui.search_query.clear();
+                        } else {
+                            self.ui.focus = match self.ui.focus {
+                                Focus::SearchInput | Focus::SearchResults => Focus::SearchInput,
+                                Focus::QueueList => Focus::SearchResults,
+                            };
+                        }
+                    }
+                }
+                return Ok(false);
+            }
+            _ => {}
+        }
+
+        // Screen-specific handlers
         if self.ui.active_screen == ActiveScreen::Help {
-            self.ui.active_screen = ActiveScreen::Search;
-            return Ok(false);
+            match key.code {
+                KeyCode::Char('q') => return Ok(true),
+                _ => {
+                    self.ui.active_screen = ActiveScreen::Search;
+                    return Ok(false);
+                }
+            }
         }
 
         if self.ui.active_screen == ActiveScreen::Settings {
-            match key.code {
-                KeyCode::Esc => {
-                    self.ui.active_screen = ActiveScreen::Search;
-                    self.ui.focus = Focus::SearchInput;
-                }
-                KeyCode::Up => {
-                    // handled by settings_screen state; for now just close
-                }
-                _ => {}
+            if let KeyCode::Char('q') = key.code {
+                return Ok(true);
             }
             return Ok(false);
         }
 
         if self.ui.active_screen == ActiveScreen::Player {
             match key.code {
-                KeyCode::Esc | KeyCode::Tab => {
-                    self.ui.active_screen = ActiveScreen::Search;
-                    self.ui.focus = Focus::SearchInput;
-                }
-                KeyCode::Char('q') => return Ok(true),
                 KeyCode::Char(' ') => match self.playback.state() {
                     PlayerState::Playing => {
                         self.playback.pause().ok();
@@ -275,6 +305,16 @@ impl App {
                     self.ui.player_state = PlayerState::Stopped;
                     self.ui.progress = 0.0;
                 }
+                KeyCode::Char('n') => {
+                    if let Some(next) = self.playlist.next().cloned() {
+                        self.queue_play(next);
+                    }
+                }
+                KeyCode::Char('p') => {
+                    if let Some(prev) = self.playlist.previous().cloned() {
+                        self.queue_play(prev);
+                    }
+                }
                 KeyCode::Char('=') | KeyCode::Char('+') => {
                     let vol = (self.playback.volume() + 0.05).min(1.0);
                     self.playback.set_volume(vol);
@@ -285,11 +325,16 @@ impl App {
                     self.playback.set_volume(vol);
                     self.ui.volume = vol;
                 }
+                KeyCode::Char('t') => {
+                    self.ui.active_screen = ActiveScreen::Settings;
+                    self.ui.focus = Focus::SearchInput;
+                }
                 _ => {}
             }
             return Ok(false);
         }
 
+        // Search/Queue screen — dispatch by focus
         match key.code {
             KeyCode::Tab => {
                 self.ui.focus = match self.ui.focus {
@@ -344,12 +389,6 @@ impl App {
                     }
                 }
             },
-            KeyCode::Esc => {
-                self.ui.focus = match self.ui.focus {
-                    Focus::SearchInput | Focus::SearchResults => Focus::SearchInput,
-                    Focus::QueueList => Focus::SearchResults,
-                };
-            }
             KeyCode::Backspace => {
                 if self.ui.focus == Focus::SearchInput {
                     self.ui.search_query.pop();
@@ -359,14 +398,6 @@ impl App {
                 if self.ui.search_query.len() < 200 {
                     self.ui.search_query.push(c);
                 }
-            }
-            KeyCode::Char('q') => return Ok(true),
-            KeyCode::Char('?') => {
-                self.ui.active_screen = if self.ui.active_screen == ActiveScreen::Help {
-                    ActiveScreen::Search
-                } else {
-                    ActiveScreen::Help
-                };
             }
             KeyCode::Char('/') => {
                 self.ui.focus = Focus::SearchInput;
@@ -439,6 +470,7 @@ impl App {
                 self.ui.active_screen = ActiveScreen::Settings;
                 self.ui.focus = Focus::SearchInput;
             }
+            KeyCode::Char('q') => return Ok(true),
             _ => {}
         }
 

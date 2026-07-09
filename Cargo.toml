@@ -18,3 +18,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 directories = "5"
 tempfile = "3"
+rustfft = "6"
+num-complex = "0.4"

@@ -8,6 +8,7 @@ use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
 use crate::infrastructure::audio::mpv_backend::MpvBackend;
 use crate::infrastructure::audio::rodio_backend::RodioBackend;
+use crate::infrastructure::audio::spectrum::SpectrumFrame;
 use crate::infrastructure::audio::AudioMode;
 use crate::infrastructure::ytdlp::client::YtDlpClient;
 
@@ -129,7 +130,7 @@ impl PlaybackUseCase {
         self.audio.has_sink()
     }
 
-    pub fn get_spectrum(&self) -> [f32; 16] {
+    pub fn get_spectrum(&self) -> SpectrumFrame {
         self.audio.get_spectrum()
     }
 }

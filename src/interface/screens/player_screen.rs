@@ -77,7 +77,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         frame.render_widget(no_song, info_area);
     }
 
-    let spectrum = SpectrumWidget::new(state.spectrum, theme.accent).no_block();
+    let spectrum = SpectrumWidget::new(state.spectrum.bands, state.spectrum.peaks, theme.accent).no_block();
     frame.render_widget(spectrum, spectrum_area);
 
     if state.loading_status.is_none() && state.current_song.is_some() {
