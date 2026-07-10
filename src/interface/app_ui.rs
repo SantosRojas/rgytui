@@ -31,14 +31,16 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode) {
 
     let title_text = Line::from(vec![
         Span::styled(" rgytui ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-        Span::styled("YouTube Music Player", Style::default().fg(Color::DarkGray)),
+        Span::styled(state.tr("app_subtitle"), Style::default().fg(Color::DarkGray)),
+        Span::raw("  —  "),
+        Span::styled("Desarrollado por Santos Rojas", Style::default().fg(Color::DarkGray)),
     ]);
     let title = Paragraph::new(title_text).style(Style::default().bg(theme.panel_bg));
     frame.render_widget(title, title_area);
 
     match state.active_screen {
         ActiveScreen::Help => {
-            help_screen::render(frame, main_area);
+            help_screen::render(frame, main_area, &state.translations);
         }
         ActiveScreen::Settings => {
             settings_screen::render(frame, main_area, state, &theme);
@@ -55,7 +57,9 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode) {
         .player_state(state.player_state)
         .audio_mode(audio_mode)
         .volume(state.volume)
-        .focus(state.focus);
+        .focus(state.focus)
+        .translations(state.translations.clone())
+        .accent_color(theme.accent);
     frame.render_widget(status_bar, status_area);
 
     if let Some(ref err) = state.error_message {
@@ -82,11 +86,11 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode) {
 
 fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState) {
     let formats = [
-        ("m4a",  "AAC (best quality)"),
-        ("mp3",  "MP3 (compatible)"),
-        ("opus", "Opus (small size)"),
-        ("flac", "FLAC (lossless)"),
-        ("wav",  "WAV (uncompressed)"),
+        ("m4a",  state.tr("fmt_aac")),
+        ("mp3",  state.tr("fmt_mp3")),
+        ("opus", state.tr("fmt_opus")),
+        ("flac", state.tr("fmt_flac")),
+        ("wav",  state.tr("fmt_wav")),
     ];
 
     let items: Vec<ListItem> = formats.iter().enumerate().map(|(i, (name, desc))| {
@@ -97,7 +101,7 @@ fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState) {
                 Style::default().fg(if selected { Color::White } else { Color::DarkGray }),
             ),
             Span::styled(
-                *desc,
+                desc.clone(),
                 Style::default().fg(if selected { Color::White } else { Color::Gray }),
             ),
         ]);
@@ -112,7 +116,7 @@ fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Select Format ")
+                .title(state.tr("download_title"))
                 .border_style(Style::default().fg(Color::Cyan)),
         )
         .highlight_style(Style::default().bg(Color::Rgb(60, 60, 60)))
@@ -177,7 +181,7 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
     let inner_area = {
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(" Now Playing ")
+            .title(state.tr("now_playing_title"))
             .border_style(Style::default().fg(theme.accent));
         let inner = block.inner(area);
         block.render(area, frame.buffer_mut());
@@ -215,7 +219,7 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
         }
     } else {
         let no_song = Paragraph::new(Line::from(Span::styled(
-            "No track loaded",
+            state.tr("no_track_loaded"),
             Style::default().fg(Color::DarkGray),
         )))
         .alignment(ratatui::layout::Alignment::Center);
@@ -233,7 +237,7 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let inner_area = {
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(format!(" Queue ({}) ", state.queue_songs.len()))
+            .title(state.tr("queue_title").replace("{}", &state.queue_songs.len().to_string()))
             .border_style(Style::default().fg(border_color));
         let inner = block.inner(area);
         block.render(area, frame.buffer_mut());
@@ -242,7 +246,7 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
 
     if state.queue_songs.is_empty() {
         let empty = Paragraph::new(Line::from(Span::styled(
-            "Queue is empty — search and add songs",
+            state.tr("queue_empty"),
             Style::default().fg(Color::DarkGray),
         )))
         .alignment(ratatui::layout::Alignment::Center);
@@ -291,7 +295,7 @@ fn render_right_panel(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
     let inner_area = {
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(" Browse ")
+            .title(state.tr("browse_title"))
             .border_style(Style::default().fg(border_color));
         let inner = block.inner(area);
         block.render(area, frame.buffer_mut());

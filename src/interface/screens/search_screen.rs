@@ -18,9 +18,9 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let results_area = chunks[1];
 
     let title = if state.is_searching {
-        "Searching..."
+        state.tr("search_searching")
     } else {
-        "Search"
+        state.tr("search_title")
     };
 
     let input_box = InputBox::new()
@@ -38,7 +38,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
 
     frame.render_widget(input_box, search_area);
 
-    let count_text = format!("Results ({})", state.search_results.len());
+    let count_text = state.tr("search_results").replace("{}", &state.search_results.len().to_string());
     let items: Vec<ListItem> = state
         .search_results
         .iter()

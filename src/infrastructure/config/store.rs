@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 use crate::domain::error::DomainError;
 use crate::domain::media::Playlist;
 
+fn default_language() -> String {
+    "es".into()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppSettings {
     pub volume: f32,
@@ -14,6 +18,8 @@ pub struct AppSettings {
     pub theme: String,
     pub accent_color: String,
     pub download_path: String,
+    #[serde(default = "default_language")]
+    pub language: String,
 }
 
 impl Default for AppSettings {
@@ -25,6 +31,7 @@ impl Default for AppSettings {
             theme: "dark".into(),
             accent_color: "#00ffff".into(),
             download_path: default_download_path(),
+            language: "es".into(),
         }
     }
 }

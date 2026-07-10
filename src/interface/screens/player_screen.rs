@@ -27,13 +27,13 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let progress_area = chunks[3];
 
     let status = if state.loading_status.is_some() {
-        "⏳ Loading"
+        state.tr("player_loading")
     } else {
         match state.player_state {
-            PlayerState::Playing => "▶ Playing",
-            PlayerState::Paused => "⏸ Paused",
-            PlayerState::Loading => "⏳ Loading",
-            PlayerState::Stopped | PlayerState::Idle => "⏹ Stopped",
+            PlayerState::Playing => state.tr("player_playing"),
+            PlayerState::Paused => state.tr("player_paused"),
+            PlayerState::Loading => state.tr("player_loading"),
+            PlayerState::Stopped | PlayerState::Idle => state.tr("player_stopped"),
         }
     };
 
@@ -71,7 +71,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         .alignment(Alignment::Center);
         frame.render_widget(info, info_area);
     } else {
-        let no_song = Paragraph::new("No track loaded")
+        let no_song = Paragraph::new(state.tr("player_no_track"))
             .block(Block::default().borders(Borders::ALL))
             .alignment(Alignment::Center);
         frame.render_widget(no_song, info_area);

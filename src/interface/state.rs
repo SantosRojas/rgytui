@@ -3,6 +3,7 @@ use std::time::Instant;
 use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
 use crate::infrastructure::audio::spectrum::SpectrumFrame;
+use crate::interface::i18n::Translations;
 
 #[derive(Clone, Debug)]
 pub struct Notification {
@@ -56,6 +57,8 @@ pub struct UiState {
     pub download_song: Option<Song>,
     pub download_pending: Option<(Song, String, String)>,
     pub notification: Option<Notification>,
+    pub language: String,
+    pub translations: Translations,
 }
 
 impl Default for UiState {
@@ -89,11 +92,17 @@ impl Default for UiState {
             download_song: None,
             download_pending: None,
             notification: None,
+            language: "es".into(),
+            translations: Translations::load("es"),
         }
     }
 }
 
 impl UiState {
+    pub fn tr(&self, key: &str) -> String {
+        self.translations.t(key)
+    }
+
     pub fn progress_percent(&self) -> f64 {
         if self.duration > 0.0 {
             (self.progress / self.duration * 100.0).clamp(0.0, 100.0)

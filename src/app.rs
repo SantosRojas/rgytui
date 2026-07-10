@@ -14,6 +14,7 @@ use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
 use crate::infrastructure::config::store::ConfigStore;
 use crate::interface::app_ui;
+use crate::interface::i18n::Translations;
 use crate::interface::state::{ActiveScreen, Focus, Notification, UiState};
 use crate::shared::event::AppEvent;
 
@@ -56,12 +57,16 @@ impl App {
         });
 
         let settings = config.settings();
+        let language = settings.language.clone();
+        let translations = Translations::load(&language);
         let ui = UiState {
             volume: settings.volume.clamp(0.0, 1.0),
             theme_name: settings.theme.clone(),
             accent_color: settings.accent_color.clone(),
             default_search_limit: settings.default_search_limit,
             download_path: settings.download_path.clone(),
+            language: language.clone(),
+            translations,
             ..UiState::default()
         };
 
@@ -140,7 +145,7 @@ impl App {
 
             if let Some(song) = self.pending_play.take() {
                 let song_name = song.title.clone();
-                self.ui.loading_status = Some(format!("Downloading {}...", song_name));
+                self.ui.loading_status = Some(self.ui.tr("downloading").replace("{}", &song_name));
                 while self.event_rx.try_recv().is_ok() {}
                 match self.playback.play(&song).await {
                     Ok(()) => {
@@ -151,7 +156,7 @@ impl App {
                     }
                     Err(e) => {
                         self.ui.player_state = PlayerState::Stopped;
-                        self.ui.error_message = Some(format!("Playback error: {}", e));
+                        self.ui.error_message = Some(self.ui.tr("err_playback").replace("{}", &e.to_string()));
                         self.ui.loading_status = None;
                         self.ui.current_song = None;
                     }
@@ -161,18 +166,18 @@ impl App {
 
             if let Some((song, dir, fmt)) = self.ui.download_pending.take() {
                 let song_name = song.title.clone();
-                self.ui.loading_status = Some(format!("Downloading {}...", song_name));
+                self.ui.loading_status = Some(self.ui.tr("downloading").replace("{}", &song_name));
                 while self.event_rx.try_recv().is_ok() {}
                 match self.playback.download_song(&song, &dir, &fmt).await {
                     Ok(_path) => {
                         self.ui.notification = Some(Notification {
-                            message: format!("Downloaded '{}'", song_name),
+                            message: self.ui.tr("notif_downloaded").replace("{}", &song_name),
                             success: true,
                             timestamp: std::time::Instant::now(),
                         });
                     }
                     Err(e) => {
-                        self.ui.error_message = Some(format!("Download error: {}", e));
+                        self.ui.error_message = Some(self.ui.tr("err_download").replace("{}", &e.to_string()));
                     }
                 }
                 self.ui.loading_status = None;
@@ -185,7 +190,7 @@ impl App {
                         Ok(true) => true,
                         Ok(false) => false,
                         Err(e) => {
-                            self.ui.error_message = Some(format!("Error: {}", e));
+                            self.ui.error_message = Some(self.ui.tr("err_generic").replace("{}", &e.to_string()));
                             false
                         }
                     }
@@ -217,6 +222,7 @@ impl App {
         s.accent_color = self.ui.accent_color.clone();
         s.default_search_limit = self.ui.default_search_limit;
         s.download_path = self.ui.download_path.clone();
+        s.language = self.ui.language.clone();
         self.config.save_settings().ok();
         if let Err(e) = self.config.save_playlist(self.playlist.playlist()) {
             tracing::warn!("Failed to save playlist: {}", e);
@@ -347,7 +353,7 @@ impl App {
                     self.ui.settings_focus = self.ui.settings_focus.saturating_sub(1);
                 }
                 KeyCode::Down => {
-                    self.ui.settings_focus = (self.ui.settings_focus + 1).min(4);
+                    self.ui.settings_focus = (self.ui.settings_focus + 1).min(5);
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => match self.ui.settings_focus {
                     0 => {
@@ -380,6 +386,14 @@ impl App {
                         if let Some(p) = dir {
                             self.ui.download_path = p.to_string_lossy().to_string();
                         }
+                    }
+                    5 => {
+                        self.ui.language = if self.ui.language == "es" {
+                            "en".into()
+                        } else {
+                            "es".into()
+                        };
+                        self.ui.translations = Translations::load(&self.ui.language);
                     }
                     _ => {}
                 },
@@ -586,10 +600,10 @@ impl App {
                     let idx = self.ui.selected_index;
                     if let Some(song) = self.ui.search_results.get(idx) {
                         if self.playlist.songs().iter().any(|s| s.id == song.id) {
-                            self.ui.status_message = Some(format!("Already in queue: '{}'", song.title));
+                            self.ui.status_message = Some(self.ui.tr("notif_already_in_queue").replace("{}", &song.title));
                         } else {
                             self.playlist.add(song.clone());
-                            self.ui.status_message = Some(format!("Added '{}' to queue", song.title));
+                            self.ui.status_message = Some(self.ui.tr("notif_added_to_queue").replace("{}", &song.title));
                         }
                     }
                 }
@@ -640,6 +654,9 @@ impl App {
             Some(s) => s.clone(),
             None => return,
         };
+        if self.playlist.songs().iter().any(|s| s.id == song.id) {
+            return;
+        }
         let pos = self.playlist.len();
         self.playlist.add(song.clone());
         self.playlist.set_current_index(pos);
@@ -689,13 +706,13 @@ impl App {
             }
             AppEvent::DownloadComplete { song_title, file_path: _ } => {
                 self.ui.notification = Some(Notification {
-                    message: format!("Downloaded '{}'", song_title),
+                    message: self.ui.tr("notif_downloaded").replace("{}", &song_title),
                     success: true,
                     timestamp: std::time::Instant::now(),
                 });
             }
             AppEvent::DownloadError(err) => {
-                self.ui.error_message = Some(format!("Download failed: {}", err));
+                self.ui.error_message = Some(self.ui.tr("err_download_failed").replace("{}", &err));
             }
             AppEvent::Exit => {}
         }

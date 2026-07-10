@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Paragraph, Widget};
 
 use crate::domain::player_state::PlayerState;
 use crate::infrastructure::audio::AudioMode;
+use crate::interface::i18n::Translations;
 use crate::interface::state::Focus;
 
 pub struct StatusBar {
@@ -13,6 +14,8 @@ pub struct StatusBar {
     audio_mode: AudioMode,
     volume: f32,
     focus: Focus,
+    translations: Translations,
+    accent_color: Color,
 }
 
 impl StatusBar {
@@ -22,6 +25,8 @@ impl StatusBar {
             audio_mode: AudioMode::Audio,
             volume: 0.8,
             focus: Focus::SearchInput,
+            translations: Translations::load("es"),
+            accent_color: Color::Cyan,
         }
     }
 
@@ -44,21 +49,33 @@ impl StatusBar {
         self.focus = f;
         self
     }
+
+    pub fn translations(mut self, t: Translations) -> Self {
+        self.translations = t;
+        self
+    }
+
+    pub fn accent_color(mut self, c: Color) -> Self {
+        self.accent_color = c;
+        self
+    }
 }
 
 impl Widget for StatusBar {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let t = |k: &str| self.translations.t(k);
+
         let state_label = match self.player_state {
-            PlayerState::Idle => Span::styled("■ Idle", Style::default().fg(Color::Gray)),
-            PlayerState::Loading => Span::styled("◌ Loading", Style::default().fg(Color::Yellow)),
-            PlayerState::Playing => Span::styled("▶ Playing", Style::default().fg(Color::Green)),
-            PlayerState::Paused => Span::styled("⏸ Paused", Style::default().fg(Color::Yellow)),
-            PlayerState::Stopped => Span::styled("■ Stopped", Style::default().fg(Color::Red)),
+            PlayerState::Idle => Span::styled(t("status_idle"), Style::default().fg(Color::Gray)),
+            PlayerState::Loading => Span::styled(t("status_loading"), Style::default().fg(Color::Yellow)),
+            PlayerState::Playing => Span::styled(t("status_playing"), Style::default().fg(Color::Green)),
+            PlayerState::Paused => Span::styled(t("status_paused"), Style::default().fg(Color::Yellow)),
+            PlayerState::Stopped => Span::styled(t("status_stopped"), Style::default().fg(Color::Red)),
         };
 
         let mode_label = match self.audio_mode {
-            AudioMode::Audio => Span::styled("🎵 Audio", Style::default().fg(Color::Cyan)),
-            AudioMode::Video => Span::styled("🎬 Video", Style::default().fg(Color::Magenta)),
+            AudioMode::Audio => Span::styled(t("status_audio"), Style::default().fg(Color::Cyan)),
+            AudioMode::Video => Span::styled(t("status_video"), Style::default().fg(Color::Magenta)),
         };
 
         let vol = (self.volume * 100.0) as u8;
@@ -83,14 +100,14 @@ impl Widget for StatusBar {
             Span::raw("  │  "),
             Span::styled(
                 match self.focus {
-                    Focus::SearchInput => "Type to search — Esc:clear  Tab:focus  Enter:search",
-                    Focus::SearchResults => "↑↓:navigate  Enter:play  a:add  d:download  q:quit",
-                    Focus::QueueList => "↑↓:navigate  Enter:play  Delete:remove  c:clear  q:quit",
+                    Focus::SearchInput => t("hint_search_input"),
+                    Focus::SearchResults => t("hint_search_results"),
+                    Focus::QueueList => t("hint_queue"),
                 },
-                Style::default().fg(Color::Blue),
+                Style::default().fg(self.accent_color),
             ),
             Span::raw("  │  "),
-            Span::styled("?:Help  t:Settings  q:Quit  Ctrl+Q:force quit",
+            Span::styled(t("hint_general"),
                 Style::default().fg(Color::DarkGray),
             ),
         ]);
