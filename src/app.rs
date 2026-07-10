@@ -14,7 +14,7 @@ use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
 use crate::infrastructure::config::store::ConfigStore;
 use crate::interface::app_ui;
-use crate::interface::state::{ActiveScreen, Focus, UiState};
+use crate::interface::state::{ActiveScreen, Focus, Notification, UiState};
 use crate::shared::event::AppEvent;
 
 pub struct App {
@@ -61,6 +61,7 @@ impl App {
             theme_name: settings.theme.clone(),
             accent_color: settings.accent_color.clone(),
             default_search_limit: settings.default_search_limit,
+            download_path: settings.download_path.clone(),
             ..UiState::default()
         };
 
@@ -126,6 +127,12 @@ impl App {
         let _guard = TerminalGuard;
 
         loop {
+            if let Some(ref n) = self.ui.notification
+                && n.timestamp.elapsed() > Duration::from_secs(5)
+            {
+                self.ui.notification = None;
+            }
+
             self.sync_ui_queue();
             terminal.draw(|frame| {
                 app_ui::render(frame, &self.ui, self.playback.mode());
@@ -149,6 +156,26 @@ impl App {
                         self.ui.current_song = None;
                     }
                 }
+                continue;
+            }
+
+            if let Some((song, dir, fmt)) = self.ui.download_pending.take() {
+                let song_name = song.title.clone();
+                self.ui.loading_status = Some(format!("Downloading {}...", song_name));
+                while self.event_rx.try_recv().is_ok() {}
+                match self.playback.download_song(&song, &dir, &fmt).await {
+                    Ok(_path) => {
+                        self.ui.notification = Some(Notification {
+                            message: format!("Downloaded '{}'", song_name),
+                            success: true,
+                            timestamp: std::time::Instant::now(),
+                        });
+                    }
+                    Err(e) => {
+                        self.ui.error_message = Some(format!("Download error: {}", e));
+                    }
+                }
+                self.ui.loading_status = None;
                 continue;
             }
 
@@ -189,6 +216,7 @@ impl App {
         s.theme = self.ui.theme_name.clone();
         s.accent_color = self.ui.accent_color.clone();
         s.default_search_limit = self.ui.default_search_limit;
+        s.download_path = self.ui.download_path.clone();
         self.config.save_settings().ok();
         if let Err(e) = self.config.save_playlist(self.playlist.playlist()) {
             tracing::warn!("Failed to save playlist: {}", e);
@@ -268,6 +296,36 @@ impl App {
             _ => {}
         }
 
+        // Download format popup handler
+        if self.ui.show_download_popup {
+            match key.code {
+                KeyCode::Up => {
+                    self.ui.download_format = self.ui.download_format.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    self.ui.download_format = (self.ui.download_format + 1).min(4);
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    let idx = self.ui.selected_index;
+                    if let Some(song) = self.ui.search_results.get(idx).cloned() {
+                        let dir = self.ui.download_path.clone();
+                        let fmt = match self.ui.download_format {
+                            0 => "m4a", 1 => "mp3", 2 => "opus", 3 => "flac", _ => "wav",
+                        }.to_string();
+                        self.ui.show_download_popup = false;
+                        self.ui.download_pending = Some((song, dir, fmt));
+                    } else {
+                        self.ui.show_download_popup = false;
+                    }
+                }
+                KeyCode::Esc => {
+                    self.ui.show_download_popup = false;
+                }
+                _ => {}
+            }
+            return Ok(false);
+        }
+
         // Screen-specific handlers
         if self.ui.active_screen == ActiveScreen::Help {
             match key.code {
@@ -290,7 +348,7 @@ impl App {
                     self.ui.settings_focus = self.ui.settings_focus.saturating_sub(1);
                 }
                 KeyCode::Down => {
-                    self.ui.settings_focus = (self.ui.settings_focus + 1).min(3);
+                    self.ui.settings_focus = (self.ui.settings_focus + 1).min(4);
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => match self.ui.settings_focus {
                     0 => {
@@ -313,6 +371,16 @@ impl App {
                             .map(|i| (i + 1) % PRESETS.len())
                             .unwrap_or(0);
                         self.ui.accent_color = PRESETS[i].to_string();
+                    }
+                    4 => {
+                        let dir = tokio::task::spawn_blocking(|| {
+                            rfd::FileDialog::new()
+                                .set_title("Select Download Folder")
+                                .pick_folder()
+                        }).await.unwrap_or(None);
+                        if let Some(p) = dir {
+                            self.ui.download_path = p.to_string_lossy().to_string();
+                        }
                     }
                     _ => {}
                 },
@@ -341,6 +409,14 @@ impl App {
                     }
                     _ => {}
                 },
+                KeyCode::Char(c) if self.ui.settings_focus == 4 => {
+                    if self.ui.download_path.len() < 300 {
+                        self.ui.download_path.push(c);
+                    }
+                }
+                KeyCode::Backspace if self.ui.settings_focus == 4 => {
+                    self.ui.download_path.pop();
+                }
                 _ => {}
             }
             return Ok(false);
@@ -510,15 +586,25 @@ impl App {
                 if self.ui.focus == Focus::SearchResults && !self.ui.search_results.is_empty() {
                     let idx = self.ui.selected_index;
                     if let Some(song) = self.ui.search_results.get(idx) {
-                        self.playlist.add(song.clone());
-                        self.ui.status_message = Some(format!("Added '{}' to queue", song.title));
+                        if self.playlist.songs().iter().any(|s| s.id == song.id) {
+                            self.ui.status_message = Some(format!("Already in queue: '{}'", song.title));
+                        } else {
+                            self.playlist.add(song.clone());
+                            self.ui.status_message = Some(format!("Added '{}' to queue", song.title));
+                        }
                     }
                 }
             }
-            KeyCode::Char('d') => {
+            KeyCode::Delete => {
                 if self.ui.focus == Focus::QueueList && !self.ui.queue_songs.is_empty() {
                     let idx = self.ui.queue_selected;
                     self.playlist.remove(idx);
+                }
+            }
+            KeyCode::Char('d') => {
+                if self.ui.focus == Focus::SearchResults && !self.ui.search_results.is_empty() {
+                    self.ui.show_download_popup = true;
+                    self.ui.download_format = 0;
                 }
             }
             KeyCode::Char('C') | KeyCode::Char('c') => {
@@ -592,6 +678,16 @@ impl App {
             }
             AppEvent::VolumeChanged(vol) => {
                 self.ui.volume = vol;
+            }
+            AppEvent::DownloadComplete { song_title, file_path: _ } => {
+                self.ui.notification = Some(Notification {
+                    message: format!("Downloaded '{}'", song_title),
+                    success: true,
+                    timestamp: std::time::Instant::now(),
+                });
+            }
+            AppEvent::DownloadError(err) => {
+                self.ui.error_message = Some(format!("Download failed: {}", err));
             }
             AppEvent::Exit => {}
         }

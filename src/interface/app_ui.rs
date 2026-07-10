@@ -70,6 +70,84 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode) {
         );
         frame.render_widget(err_widget, main_area);
     }
+
+    if state.show_download_popup {
+        render_download_popup(frame, frame.area(), state);
+    }
+
+    if let Some(ref n) = state.notification {
+        render_notification(frame, frame.area(), n);
+    }
+}
+
+fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState) {
+    let formats = [
+        ("m4a",  "AAC (best quality)"),
+        ("mp3",  "MP3 (compatible)"),
+        ("opus", "Opus (small size)"),
+        ("flac", "FLAC (lossless)"),
+        ("wav",  "WAV (uncompressed)"),
+    ];
+
+    let items: Vec<ListItem> = formats.iter().enumerate().map(|(i, (name, desc))| {
+        let selected = i == state.download_format;
+        let content = Line::from(vec![
+            Span::styled(
+                format!(" {:4} ", name),
+                Style::default().fg(if selected { Color::White } else { Color::DarkGray }),
+            ),
+            Span::styled(
+                *desc,
+                Style::default().fg(if selected { Color::White } else { Color::Gray }),
+            ),
+        ]);
+        ListItem::new(content).style(if selected {
+            Style::default().bg(Color::Rgb(60, 60, 60))
+        } else {
+            Style::default()
+        })
+    }).collect();
+
+    let popup = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Select Format ")
+                .border_style(Style::default().fg(Color::Cyan)),
+        )
+        .highlight_style(Style::default().bg(Color::Rgb(60, 60, 60)))
+        .highlight_symbol("▸");
+
+    let popup_area = centered_rect(40, formats.len() as u16 + 2, area);
+    frame.render_widget(popup, popup_area);
+}
+
+fn render_notification(frame: &mut Frame, area: Rect, notification: &crate::interface::state::Notification) {
+    let icon = if notification.success { "✅" } else { "❌" };
+    let text = Line::from(vec![
+        Span::styled(format!(" {} ", icon), Style::default()),
+        Span::styled(&notification.message, Style::default().fg(Color::White)),
+    ]);
+    let widget = Paragraph::new(text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(if notification.success { Color::Green } else { Color::Red })),
+        )
+        .style(Style::default().bg(if notification.success { Color::Rgb(30, 60, 30) } else { Color::Rgb(60, 30, 30) }));
+
+    let notif_area = centered_rect(
+        (notification.message.len() + 6).min(60) as u16,
+        3,
+        area,
+    );
+    frame.render_widget(widget, notif_area);
+}
+
+fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) / 2;
+    Rect { x, y, width, height }
 }
 
 fn render_hybrid(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {

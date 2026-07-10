@@ -43,6 +43,17 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
             Span::styled("Search Limit: ", Style::default().fg(theme.text)),
             Span::styled(format!("{}", state.default_search_limit), Style::default().fg(theme.accent)),
         ])),
+        ListItem::new(Line::from(vec![
+            Span::styled("Download Path: ", Style::default().fg(theme.text)),
+            Span::styled(
+                if state.download_path.len() > 40 {
+                    format!("...{}", &state.download_path[state.download_path.len().saturating_sub(37)..])
+                } else {
+                    state.download_path.clone()
+                },
+                Style::default().fg(theme.accent),
+            ),
+        ])),
     ];
 
     let list = List::new(items)
@@ -55,7 +66,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     frame.render_stateful_widget(list, chunks[1], &mut list_state);
 
     let hints = Line::from(Span::styled(
-        "Enter: toggle/cycle  +/-: adjust  Esc: back",
+        "Enter: toggle/cycle/browse  +/-/type: adjust  Esc: back",
         Style::default().fg(Color::DarkGray),
     ));
     frame.render_widget(Paragraph::new(hints).alignment(Alignment::Center), chunks[2]);

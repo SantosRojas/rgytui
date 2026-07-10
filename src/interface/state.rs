@@ -1,6 +1,15 @@
+use std::time::Instant;
+
 use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
 use crate::infrastructure::audio::spectrum::SpectrumFrame;
+
+#[derive(Clone, Debug)]
+pub struct Notification {
+    pub message: String,
+    pub success: bool,
+    pub timestamp: Instant,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ActiveScreen {
@@ -41,6 +50,11 @@ pub struct UiState {
     pub accent_color: String,
     pub default_search_limit: usize,
     pub settings_focus: usize,
+    pub download_path: String,
+    pub show_download_popup: bool,
+    pub download_format: usize,
+    pub download_pending: Option<(Song, String, String)>,
+    pub notification: Option<Notification>,
 }
 
 impl Default for UiState {
@@ -68,6 +82,11 @@ impl Default for UiState {
             accent_color: "#00ffff".into(),
             default_search_limit: 10,
             settings_focus: 0,
+            download_path: String::new(),
+            show_download_popup: false,
+            download_format: 0,
+            download_pending: None,
+            notification: None,
         }
     }
 }

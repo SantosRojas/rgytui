@@ -12,5 +12,7 @@ pub enum AppEvent {
     PlaybackStopped,
     PlaybackError(String),
     VolumeChanged(f32),
+    DownloadComplete { song_title: String, file_path: String },
+    DownloadError(String),
     Exit,
 }

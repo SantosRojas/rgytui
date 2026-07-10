@@ -133,4 +133,13 @@ impl PlaybackUseCase {
     pub fn get_spectrum(&self) -> SpectrumFrame {
         self.audio.get_spectrum()
     }
+
+    pub fn ytdlp_clone(&self) -> YtDlpClient {
+        self.ytdlp.clone()
+    }
+
+    pub async fn download_song(&self, song: &Song, output_dir: &str, audio_format: &str) -> Result<String, DomainError> {
+        std::fs::create_dir_all(output_dir)?;
+        self.ytdlp.download(&song.webpage_url, output_dir, audio_format).await
+    }
 }

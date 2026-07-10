@@ -84,8 +84,8 @@ impl Widget for StatusBar {
             Span::styled(
                 match self.focus {
                     Focus::SearchInput => "Type to search — Esc:clear  Tab:focus  Enter:search",
-                    Focus::SearchResults => "↑↓:navigate  Enter:play  a:add  q:quit",
-                    Focus::QueueList => "↑↓:navigate  Enter:play  d:delete  c:clear  q:quit",
+                    Focus::SearchResults => "↑↓:navigate  Enter:play  a:add  d:download  q:quit",
+                    Focus::QueueList => "↑↓:navigate  Enter:play  Delete:remove  c:clear  q:quit",
                 },
                 Style::default().fg(Color::Blue),
             ),

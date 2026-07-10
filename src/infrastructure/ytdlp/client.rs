@@ -99,6 +99,54 @@ impl YtDlpClient {
         Ok(stream_url)
     }
 
+    pub async fn download(
+        &self,
+        url: &str,
+        output_dir: &str,
+        audio_format: &str,
+    ) -> Result<String, DomainError> {
+        let output_template = format!("{}/%(title)s.%(ext)s", output_dir.trim_end_matches(['/', '\\']));
+
+        let mut cmd = tokio::process::Command::new("yt-dlp");
+        cmd.arg("-f").arg("bestaudio/best");
+        cmd.arg("-o").arg(&output_template);
+        cmd.arg("--no-playlist");
+        cmd.arg("--print").arg("after_move:filename");
+
+        let (format_flag, ext_opt) = match audio_format {
+            "mp3" => ("--audio-format", Some("mp3")),
+            "flac" => ("--audio-format", Some("flac")),
+            "wav" => ("--audio-format", Some("wav")),
+            "opus" => ("--audio-format", Some("opus")),
+            _ => ("", None),
+        };
+
+        if let Some(ext) = ext_opt {
+            cmd.arg("-x").arg(format_flag).arg(ext);
+        }
+
+        cmd.arg(url);
+
+        let output = tokio::time::timeout(Duration::from_secs(300), cmd.output())
+            .await
+            .map_err(|_| DomainError::YtDlp("Download timed out after 300s".into()))?
+            .map_err(|e| DomainError::YtDlp(format!("Failed to run yt-dlp: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(DomainError::YtDlp(format!("Download failed: {}", stderr)));
+        }
+
+        let filename = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let filepath = if filename.is_empty() {
+            format!("{}/{}", output_dir.trim_end_matches(['/', '\\']), url)
+        } else {
+            filename
+        };
+
+        Ok(filepath)
+    }
+
     pub async fn get_metadata(&self, url: &str) -> Result<Song, DomainError> {
         let output = tokio::time::timeout(
             Duration::from_secs(30),

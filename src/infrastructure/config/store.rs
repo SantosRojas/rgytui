@@ -13,6 +13,7 @@ pub struct AppSettings {
     pub default_search_limit: usize,
     pub theme: String,
     pub accent_color: String,
+    pub download_path: String,
 }
 
 impl Default for AppSettings {
@@ -23,8 +24,30 @@ impl Default for AppSettings {
             default_search_limit: 10,
             theme: "dark".into(),
             accent_color: "#00ffff".into(),
+            download_path: default_download_path(),
         }
     }
+}
+
+fn default_download_path() -> String {
+    dirs::audio_dir()
+        .unwrap_or_else(|| {
+            #[cfg(windows)]
+            {
+                std::env::var("USERPROFILE")
+                    .map(|p| std::path::PathBuf::from(p).join("Music"))
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            }
+            #[cfg(not(windows))]
+            {
+                std::env::var("HOME")
+                    .map(|p| std::path::PathBuf::from(p).join("Music"))
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            }
+        })
+        .join("rgytui")
+        .to_string_lossy()
+        .to_string()
 }
 
 pub struct ConfigStore {
