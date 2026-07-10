@@ -40,6 +40,7 @@ pub struct UiState {
     pub theme_name: String,
     pub accent_color: String,
     pub default_search_limit: usize,
+    pub settings_focus: usize,
 }
 
 impl Default for UiState {
@@ -66,6 +67,7 @@ impl Default for UiState {
             theme_name: "dark".into(),
             accent_color: "#00ffff".into(),
             default_search_limit: 10,
+            settings_focus: 0,
         }
     }
 }

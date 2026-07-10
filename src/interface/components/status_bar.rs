@@ -90,7 +90,7 @@ impl Widget for StatusBar {
                 Style::default().fg(Color::Blue),
             ),
             Span::raw("  │  "),
-            Span::styled("?:Help  q:Quit  Ctrl+Q:force quit",
+            Span::styled("?:Help  t:Settings  q:Quit  Ctrl+Q:force quit",
                 Style::default().fg(Color::DarkGray),
             ),
         ]);

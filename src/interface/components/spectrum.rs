@@ -25,7 +25,9 @@ const BAR_COLORS: [Color; BARS] = [
     Color::Rgb(255, 0, 80),
 ];
 
-const PARTIAL_BLOCKS: [char; 7] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇'];
+const PARTIAL_BLOCKS: [&str; 7] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇"];
+const FULL_BLOCK: &str = "█";
+const PEAK_DOT: &str = "·";
 
 pub struct SpectrumWidget {
     bands: [f32; BARS],
@@ -35,8 +37,8 @@ pub struct SpectrumWidget {
 }
 
 impl SpectrumWidget {
-    pub fn new(bands: [f32; BARS], peaks: [f32; BARS], _accent: Color) -> Self {
-        Self { bands, peaks, accent: _accent, show_block: true }
+    pub fn new(bands: [f32; BARS], peaks: [f32; BARS], accent: Color) -> Self {
+        Self { bands, peaks, accent, show_block: true }
     }
 
     pub fn no_block(mut self) -> Self {
@@ -58,44 +60,46 @@ impl Widget for SpectrumWidget {
             area
         };
 
-        if inner.width < BARS as u16 || inner.height < 1 {
+        if inner.width < 2 || inner.height < 1 {
             return;
         }
 
-        let bar_width = (inner.width as usize / BARS).max(1);
+        let width = inner.width as usize;
         let rows = inner.height as usize;
+        let w_denom = (width - 1).max(1);
+        let bands_f = (BARS - 1) as f32;
 
         let lines: Vec<Line> = (0..rows)
             .rev()
             .map(|row| {
-                let mut spans = Vec::new();
-                for (i, (&band, &peak)) in self.bands.iter().zip(self.peaks.iter()).enumerate() {
-                    let color = if i < BAR_COLORS.len() {
-                        BAR_COLORS[i]
-                    } else {
-                        self.accent
-                    };
-                    let bar_top = band * rows as f32;
-                    let row_f = row as f32;
-                    let fill = bar_top - row_f;
+                let mut spans = Vec::with_capacity(width);
+                let row_f = row as f32;
+                for x in 0..width {
+                    let band_pos = x as f32 * bands_f / w_denom as f32;
+                    let band_idx = (band_pos.floor() as usize).min(BARS - 1);
+                    let frac = band_pos - band_idx as f32;
+                    let next = (band_idx + 1).min(BARS - 1);
 
-                    let ch = if fill >= 1.0 {
-                        "█"
+                    let value = self.bands[band_idx] * (1.0 - frac) + self.bands[next] * frac;
+                    let peak_val = self.peaks[band_idx] * (1.0 - frac) + self.peaks[next] * frac;
+
+                    let color_idx = (x * (BAR_COLORS.len() - 1) / w_denom).min(BAR_COLORS.len() - 1);
+                    let color = BAR_COLORS[color_idx];
+
+                    let pixel_top = value * rows as f32;
+                    let fill = pixel_top - row_f;
+                    let peak_top = peak_val * rows as f32;
+
+                    if fill >= 1.0 {
+                        spans.push(Span::styled(FULL_BLOCK, Style::default().fg(color)));
                     } else if fill > 0.0 {
                         let idx = ((fill * 8.0).floor() as usize).min(6);
-                        let c = PARTIAL_BLOCKS[idx];
-                        let s: String = c.to_string().repeat(bar_width);
-                        spans.push(Span::styled(s, Style::default().fg(color)));
-                        continue;
+                        spans.push(Span::styled(PARTIAL_BLOCKS[idx], Style::default().fg(color)));
+                    } else if peak_top >= row_f && peak_top < row_f + 1.0 {
+                        spans.push(Span::styled(PEAK_DOT, Style::default().fg(Color::White)));
                     } else {
-                        let peak_pos = peak * rows as f32;
-                        if peak_pos >= row_f && peak_pos < row_f + 1.0 {
-                            "·"
-                        } else {
-                            " "
-                        }
-                    };
-                    spans.push(Span::styled(ch.repeat(bar_width), Style::default().fg(color)));
+                        spans.push(Span::styled(" ", Style::default().fg(color)));
+                    }
                 }
                 Line::from(spans)
             })

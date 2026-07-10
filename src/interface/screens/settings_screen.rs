@@ -1,30 +1,12 @@
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use crate::interface::state::UiState;
 use crate::interface::theme::Theme;
 
-
-
-pub enum SettingsAction {
-    None,
-    ThemeToggle,
-    AccentSelected(usize),
-    VolumeUp,
-    VolumeDown,
-    LimitUp,
-    LimitDown,
-}
-
-pub enum SettingsFocus {
-    Theme,
-    Accent,
-    Volume,
-    Limit,
-}
 
 pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let chunks = Layout::default()
@@ -32,6 +14,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         .constraints([
             Constraint::Length(3),
             Constraint::Min(1),
+            Constraint::Length(1),
         ])
         .split(area);
 
@@ -50,7 +33,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         ])),
         ListItem::new(Line::from(vec![
             Span::styled("Accent Color: ", Style::default().fg(theme.text)),
-            Span::styled(state.accent_color.clone(), Style::default().fg(Color::Rgb(255, 255, 255))),
+            Span::styled(state.accent_color.clone(), Style::default().fg(Color::White)),
         ])),
         ListItem::new(Line::from(vec![
             Span::styled("Default Volume: ", Style::default().fg(theme.text)),
@@ -64,8 +47,16 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
 
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title("Options"))
-        .highlight_style(Style::default().bg(theme.highlight_bg).fg(theme.highlight_fg));
-    frame.render_widget(list, chunks[1]);
+        .highlight_style(Style::default().bg(theme.highlight_bg).fg(theme.highlight_fg))
+        .highlight_symbol("▸ ");
+
+    let mut list_state = ListState::default();
+    list_state.select(Some(state.settings_focus));
+    frame.render_stateful_widget(list, chunks[1], &mut list_state);
+
+    let hints = Line::from(Span::styled(
+        "Enter: toggle/cycle  +/-: adjust  Esc: back",
+        Style::default().fg(Color::DarkGray),
+    ));
+    frame.render_widget(Paragraph::new(hints).alignment(Alignment::Center), chunks[2]);
 }
-
-

@@ -280,8 +280,68 @@ impl App {
         }
 
         if self.ui.active_screen == ActiveScreen::Settings {
-            if let KeyCode::Char('q') = key.code {
-                return Ok(true);
+            match key.code {
+                KeyCode::Char('q') => return Ok(true),
+                KeyCode::Esc => {
+                    self.ui.active_screen = ActiveScreen::Search;
+                    self.ui.focus = Focus::SearchInput;
+                }
+                KeyCode::Up => {
+                    self.ui.settings_focus = self.ui.settings_focus.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    self.ui.settings_focus = (self.ui.settings_focus + 1).min(3);
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => match self.ui.settings_focus {
+                    0 => {
+                        self.ui.theme_name = if self.ui.theme_name == "dark" {
+                            "light".into()
+                        } else {
+                            "dark".into()
+                        };
+                    }
+                    1 => {
+                        const PRESETS: &[&str] = &[
+                            "#00ddff", "#ff77aa", "#55ff77", "#ffaa22",
+                            "#aa66ff", "#ff6644", "#44ddff", "#ff44aa",
+                            "#88dd00", "#00ffbb", "#dd88ff", "#ffbb33",
+                            "#33ffaa", "#ff8833", "#6699ff", "#ff5599",
+                        ];
+                        let i = PRESETS
+                            .iter()
+                            .position(|&c| c == self.ui.accent_color)
+                            .map(|i| (i + 1) % PRESETS.len())
+                            .unwrap_or(0);
+                        self.ui.accent_color = PRESETS[i].to_string();
+                    }
+                    _ => {}
+                },
+                KeyCode::Char('=') | KeyCode::Char('+') => match self.ui.settings_focus {
+                    2 => {
+                        self.ui.volume = (self.ui.volume + 0.05).min(1.0);
+                        self.playback.set_volume(self.ui.volume);
+                    }
+                    3 => {
+                        self.ui.default_search_limit =
+                            (self.ui.default_search_limit + 5).min(50);
+                    }
+                    _ => {}
+                },
+                KeyCode::Char('-') | KeyCode::Char('_') => match self.ui.settings_focus {
+                    2 => {
+                        self.ui.volume = (self.ui.volume - 0.05).max(0.0);
+                        self.playback.set_volume(self.ui.volume);
+                    }
+                    3 => {
+                        self.ui.default_search_limit = self
+                            .ui
+                            .default_search_limit
+                            .saturating_sub(5)
+                            .max(1);
+                    }
+                    _ => {}
+                },
+                _ => {}
             }
             return Ok(false);
         }
