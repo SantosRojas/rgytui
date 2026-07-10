@@ -53,6 +53,7 @@ pub struct UiState {
     pub download_path: String,
     pub show_download_popup: bool,
     pub download_format: usize,
+    pub download_song: Option<Song>,
     pub download_pending: Option<(Song, String, String)>,
     pub notification: Option<Notification>,
 }
@@ -85,6 +86,7 @@ impl Default for UiState {
             download_path: String::new(),
             show_download_popup: false,
             download_format: 0,
+            download_song: None,
             download_pending: None,
             notification: None,
         }

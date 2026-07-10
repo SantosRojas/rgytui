@@ -306,8 +306,7 @@ impl App {
                     self.ui.download_format = (self.ui.download_format + 1).min(4);
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
-                    let idx = self.ui.selected_index;
-                    if let Some(song) = self.ui.search_results.get(idx).cloned() {
+                    if let Some(song) = self.ui.download_song.take() {
                         let dir = self.ui.download_path.clone();
                         let fmt = match self.ui.download_format {
                             0 => "m4a", 1 => "mp3", 2 => "opus", 3 => "flac", _ => "wav",
@@ -602,7 +601,16 @@ impl App {
                 }
             }
             KeyCode::Char('d') => {
-                if self.ui.focus == Focus::SearchResults && !self.ui.search_results.is_empty() {
+                match self.ui.focus {
+                    Focus::SearchResults => {
+                        self.ui.download_song = self.ui.search_results.get(self.ui.selected_index).cloned();
+                    }
+                    Focus::QueueList => {
+                        self.ui.download_song = self.ui.queue_songs.get(self.ui.queue_selected).cloned();
+                    }
+                    _ => {}
+                }
+                if self.ui.download_song.is_some() {
                     self.ui.show_download_popup = true;
                     self.ui.download_format = 0;
                 }
