@@ -114,6 +114,7 @@ impl YtDlpClient {
         cmd.arg("--print").arg("after_move:filename");
 
         let (format_flag, ext_opt) = match audio_format {
+            "m4a" | "mp4" => ("--audio-format", Some("m4a")),
             "mp3" => ("--audio-format", Some("mp3")),
             "flac" => ("--audio-format", Some("flac")),
             "wav" => ("--audio-format", Some("wav")),
