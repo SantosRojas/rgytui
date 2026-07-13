@@ -272,6 +272,35 @@ impl App {
             return Ok(true);
         }
 
+        // Download format popup handler (priority check before universal keys intercept)
+        if self.ui.show_download_popup {
+            match key.code {
+                KeyCode::Up => {
+                    self.ui.download_format = self.ui.download_format.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    self.ui.download_format = (self.ui.download_format + 1).min(4);
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    if let Some(song) = self.ui.download_song.take() {
+                        let dir = self.ui.download_path.clone();
+                        let fmt = match self.ui.download_format {
+                            0 => "m4a", 1 => "mp3", 2 => "opus", 3 => "flac", _ => "wav",
+                        }.to_string();
+                        self.ui.show_download_popup = false;
+                        self.ui.download_pending = Some((song, dir, fmt));
+                    } else {
+                        self.ui.show_download_popup = false;
+                    }
+                }
+                KeyCode::Esc => {
+                    self.ui.show_download_popup = false;
+                }
+                _ => {}
+            }
+            return Ok(false);
+        }
+
         match key.code {
             KeyCode::Char('?') => {
                 self.ui.active_screen = if self.ui.active_screen == ActiveScreen::Help {
@@ -301,35 +330,6 @@ impl App {
                 return Ok(false);
             }
             _ => {}
-        }
-
-        // Download format popup handler
-        if self.ui.show_download_popup {
-            match key.code {
-                KeyCode::Up => {
-                    self.ui.download_format = self.ui.download_format.saturating_sub(1);
-                }
-                KeyCode::Down => {
-                    self.ui.download_format = (self.ui.download_format + 1).min(4);
-                }
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    if let Some(song) = self.ui.download_song.take() {
-                        let dir = self.ui.download_path.clone();
-                        let fmt = match self.ui.download_format {
-                            0 => "m4a", 1 => "mp3", 2 => "opus", 3 => "flac", _ => "wav",
-                        }.to_string();
-                        self.ui.show_download_popup = false;
-                        self.ui.download_pending = Some((song, dir, fmt));
-                    } else {
-                        self.ui.show_download_popup = false;
-                    }
-                }
-                KeyCode::Esc => {
-                    self.ui.show_download_popup = false;
-                }
-                _ => {}
-            }
-            return Ok(false);
         }
 
         // Screen-specific handlers

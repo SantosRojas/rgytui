@@ -2,7 +2,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::prelude::Widget;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, BorderType, Clear, List, ListItem, Paragraph};
 use ratatui::Frame;
 
 use crate::infrastructure::audio::AudioMode;
@@ -119,12 +119,14 @@ fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState, theme: 
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .title(format!(" 💾 {} ", state.tr("download_title")))
-                .border_style(Style::default().fg(theme.accent)),
+                .border_style(Style::default().fg(theme.accent))
+                .style(Style::default().bg(theme.panel_bg)),
         )
         .highlight_style(Style::default().bg(Color::Rgb(45, 45, 55)))
         .highlight_symbol("▸");
 
     let popup_area = centered_rect(40, formats.len() as u16 + 2, area);
+    frame.render_widget(Clear, popup_area);
     frame.render_widget(popup, popup_area);
 }
 
@@ -144,15 +146,16 @@ fn render_notification(frame: &mut Frame, area: Rect, notification: &crate::inte
             Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(border_color)),
-        )
-        .style(Style::default().bg(bg_color));
+                .border_style(Style::default().fg(border_color))
+                .style(Style::default().bg(bg_color)),
+        );
 
     let notif_area = centered_rect(
         (notification.message.len() + 6).min(60) as u16,
         3,
         area,
     );
+    frame.render_widget(Clear, notif_area);
     frame.render_widget(widget, notif_area);
 }
 
