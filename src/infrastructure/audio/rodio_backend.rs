@@ -64,6 +64,32 @@ impl RodioBackend {
         Ok(())
     }
 
+    /// Play audio from in-memory bytes (used when download completes in background).
+    pub fn play_bytes(&mut self, data: Vec<u8>, song: Song) -> Result<(), DomainError> {
+        let cursor = std::io::Cursor::new(data);
+        let decoder =
+            Decoder::new(cursor).map_err(|e| DomainError::Audio(format!("Decode error: {}", e)))?;
+
+        let total_duration = decoder
+            .total_duration()
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs_f64();
+
+        let (source, frame) = SpectrumSource::new(decoder);
+        self.spectrum = frame;
+
+        self.player.stop();
+        self.player.append(source);
+        self.player.set_volume(*self.volume.lock().unwrap());
+
+        *self.state.lock().unwrap() = PlayerState::Playing;
+        *self.current_song.lock().unwrap() = Some(song);
+        *self.duration.lock().unwrap() = total_duration;
+        *self.position.lock().unwrap() = 0.0;
+
+        Ok(())
+    }
+
     pub fn get_spectrum(&self) -> SpectrumFrame {
         *self.spectrum.lock().unwrap_or_else(|e| e.into_inner())
     }

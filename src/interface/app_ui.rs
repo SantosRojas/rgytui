@@ -189,6 +189,8 @@ fn render_left_panel(frame: &mut Frame, area: Rect, state: &UiState, theme: &The
 }
 
 fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
+    use crate::interface::components::loading::LoadingWidget;
+
     let inner_area = {
         let block = Block::default()
             .borders(Borders::ALL)
@@ -200,7 +202,15 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
         inner
     };
 
-    if let Some(ref song) = state.current_song {
+    let is_loading = state.player_state == crate::domain::player_state::PlayerState::Loading
+        || state.loading_status.is_some();
+
+    if is_loading {
+        // Show modern loading animation instead of song info + spectrum
+        let loading = LoadingWidget::new(state.spinner_frame, theme.accent)
+            .message(state.loading_status.clone().unwrap_or_else(|| state.tr("player_loading")));
+        frame.render_widget(loading, inner_area);
+    } else if let Some(ref song) = state.current_song {
         let status_icon = match state.player_state {
             crate::domain::player_state::PlayerState::Playing => "▶",
             crate::domain::player_state::PlayerState::Paused  => "⏸",

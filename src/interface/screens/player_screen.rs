@@ -5,6 +5,7 @@ use ratatui::widgets::{Block, Borders, BorderType, Paragraph};
 use ratatui::Frame;
 
 use crate::domain::player_state::PlayerState;
+use crate::interface::components::loading::LoadingWidget;
 use crate::interface::components::progress_bar::ProgressBar;
 use crate::interface::components::spectrum::SpectrumWidget;
 use crate::interface::state::UiState;
@@ -118,8 +119,14 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         frame.render_widget(no_song, info_area);
     }
 
-    let spectrum = SpectrumWidget::new(state.spectrum.bands, state.spectrum.peaks, theme.accent).no_block();
-    frame.render_widget(spectrum, spectrum_area);
+    if state.player_state == PlayerState::Loading || state.loading_status.is_some() {
+        let loading = LoadingWidget::new(state.spinner_frame, theme.accent)
+            .message(state.loading_status.clone().unwrap_or_else(|| state.tr("player_loading")));
+        frame.render_widget(loading, spectrum_area);
+    } else {
+        let spectrum = SpectrumWidget::new(state.spectrum.bands, state.spectrum.peaks, theme.accent).no_block();
+        frame.render_widget(spectrum, spectrum_area);
+    }
 
     if state.loading_status.is_none() && state.current_song.is_some() {
         let progress_bar = ProgressBar::new()

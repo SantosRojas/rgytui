@@ -89,6 +89,38 @@ impl PlaybackUseCase {
         Ok(())
     }
 
+    /// Play audio from in-memory bytes (used after background download completes).
+    pub fn play_bytes(&mut self, data: Vec<u8>, song: Song) -> Result<(), DomainError> {
+        self.audio.play_bytes(data, song)
+    }
+
+    /// Download audio bytes in the background. Returns raw bytes suitable for play_bytes().
+    pub async fn download_audio_bytes(url: String) -> Result<Vec<u8>, DomainError> {
+        let output = tokio::time::timeout(
+            Duration::from_secs(120),
+            tokio::process::Command::new("yt-dlp")
+                .arg("-f")
+                .arg("bestaudio[ext=m4a]/bestaudio/best")
+                .arg("-o")
+                .arg("-")
+                .arg("--no-playlist")
+                .arg(&url)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .output(),
+        )
+        .await
+            .map_err(|_| DomainError::YtDlp("Audio download timed out after 120s".into()))?
+            .map_err(|e| DomainError::YtDlp(format!("Failed to run yt-dlp: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(DomainError::YtDlp(format!("Audio download failed: {}", stderr)));
+        }
+
+        Ok(output.stdout)
+    }
+
     pub fn pause(&mut self) -> Result<(), DomainError> {
         self.audio.pause()
     }

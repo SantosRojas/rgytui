@@ -146,19 +146,40 @@ impl App {
             if let Some(song) = self.pending_play.take() {
                 let song_name = song.title.clone();
                 self.ui.loading_status = Some(self.ui.tr("downloading").replace("{}", &song_name));
-                while self.event_rx.try_recv().is_ok() {}
-                match self.playback.play(&song).await {
-                    Ok(()) => {
-                        self.ui.player_state = PlayerState::Playing;
-                        self.ui.progress = 0.0;
-                        self.ui.duration = self.playback.current_duration();
-                        self.ui.loading_status = None;
+
+                match self.playback.mode() {
+                    crate::infrastructure::audio::AudioMode::Video => {
+                        // Video mode: still blocking (mpv handles its own window)
+                        match self.playback.play(&song).await {
+                            Ok(()) => {
+                                self.ui.player_state = PlayerState::Playing;
+                                self.ui.progress = 0.0;
+                                self.ui.duration = self.playback.current_duration();
+                                self.ui.loading_status = None;
+                            }
+                            Err(e) => {
+                                self.ui.player_state = PlayerState::Stopped;
+                                self.ui.error_message = Some(self.ui.tr("err_playback").replace("{}", &e.to_string()));
+                                self.ui.loading_status = None;
+                                self.ui.current_song = None;
+                            }
+                        }
                     }
-                    Err(e) => {
-                        self.ui.player_state = PlayerState::Stopped;
-                        self.ui.error_message = Some(self.ui.tr("err_playback").replace("{}", &e.to_string()));
-                        self.ui.loading_status = None;
-                        self.ui.current_song = None;
+                    crate::infrastructure::audio::AudioMode::Audio => {
+                        // Audio mode: spawn download in background so UI keeps animating
+                        let tx = self.event_tx.clone();
+                        let url = song.webpage_url.clone();
+                        let song_for_event = song.clone();
+                        tokio::spawn(async move {
+                            match PlaybackUseCase::download_audio_bytes(url).await {
+                                Ok(data) => {
+                                    let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data });
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(AppEvent::AudioDownloadError(e.to_string()));
+                                }
+                            }
+                        });
                     }
                 }
                 continue;
@@ -199,7 +220,7 @@ impl App {
                     self.handle_event(event);
                     false
                 }
-                _ = tokio::time::sleep(Duration::from_millis(200)) => {
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {
                     self.update_progress();
                     self.ui.tick_spinner();
                     false
@@ -714,6 +735,27 @@ impl App {
             }
             AppEvent::DownloadError(err) => {
                 self.ui.error_message = Some(self.ui.tr("err_download_failed").replace("{}", &err));
+            }
+            AppEvent::AudioReady { song, data } => {
+                match self.playback.play_bytes(data, song) {
+                    Ok(()) => {
+                        self.ui.player_state = PlayerState::Playing;
+                        self.ui.progress = 0.0;
+                        self.ui.duration = self.playback.current_duration();
+                    }
+                    Err(e) => {
+                        self.ui.player_state = PlayerState::Stopped;
+                        self.ui.error_message = Some(self.ui.tr("err_playback").replace("{}", &e.to_string()));
+                        self.ui.current_song = None;
+                    }
+                }
+                self.ui.loading_status = None;
+            }
+            AppEvent::AudioDownloadError(err) => {
+                self.ui.player_state = PlayerState::Stopped;
+                self.ui.error_message = Some(self.ui.tr("err_playback").replace("{}", &err));
+                self.ui.loading_status = None;
+                self.ui.current_song = None;
             }
             AppEvent::Exit => {}
         }
