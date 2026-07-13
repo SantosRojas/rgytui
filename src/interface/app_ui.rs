@@ -33,7 +33,7 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode) {
         Span::styled(" 🎵 rgytui ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
         Span::styled(state.tr("app_subtitle"), Style::default().fg(theme.text_muted)),
         Span::styled("  ◆  ", Style::default().fg(theme.separator)),
-        Span::styled("Santos Rojas", Style::default().fg(theme.text_muted)),
+        Span::styled("Santos Rojas", Style::default().fg(theme.accent)),
     ]);
     let title = Paragraph::new(title_text).style(Style::default().bg(theme.panel_bg));
     frame.render_widget(title, title_area);
