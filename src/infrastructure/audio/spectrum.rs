@@ -30,29 +30,25 @@ fn hann_window() -> &'static [f32; FFT_SIZE] {
     })
 }
 
-fn compute_bin_to_band(sample_rate: u32) -> [u8; NUM_BINS + 1] {
+/// Compute a mapping from bands to fractional FFT bin positions using a logarithmic scale.
+/// This prevents bands from having "0 count" or being empty.
+fn compute_band_to_bin(sample_rate: u32) -> [f32; BANDS] {
     let bin_width = sample_rate as f32 / FFT_SIZE as f32;
     let nyquist = sample_rate as f32 / 2.0;
+
+    // Start logarithmic mapping from bin 1 up to nyquist frequency.
     let log_min = bin_width.ln();
     let log_max = nyquist.ln();
 
-    let mut boundaries = [0.0f32; BANDS + 1];
-    for (b, bound) in boundaries.iter_mut().enumerate() {
-        let t = b as f32 / BANDS as f32;
-        *bound = (log_min + (log_max - log_min) * t).exp();
+    let mut band_to_bin = [0.0f32; BANDS];
+    for b in 0..BANDS {
+        let t = b as f32 / (BANDS - 1).max(1) as f32;
+        let freq = (log_min + (log_max - log_min) * t).exp();
+        let bin_pos = freq / bin_width;
+        // Keep it within valid bins [1.0, NUM_BINS]
+        band_to_bin[b] = bin_pos.clamp(1.0, NUM_BINS as f32);
     }
-
-    let mut map = [0u8; NUM_BINS + 1];
-    for (bin, entry) in map.iter_mut().enumerate().skip(1) {
-        let freq = bin as f32 * bin_width;
-        for b in 0..BANDS {
-            if freq >= boundaries[b] && freq < boundaries[b + 1] {
-                *entry = b as u8;
-                break;
-            }
-        }
-    }
-    map
+    band_to_bin
 }
 
 pub struct SpectrumSource<S: Source<Item = f32>> {
@@ -61,7 +57,7 @@ pub struct SpectrumSource<S: Source<Item = f32>> {
     buffer: [f32; FFT_SIZE],
     pos: usize,
     fft: Arc<dyn Fft<f32>>,
-    bin_to_band: [u8; NUM_BINS + 1],
+    band_to_bin: [f32; BANDS],
     fft_buf: Vec<Complex<f32>>,
     norm_peak: [f32; BANDS],
     vis_peak: [f32; BANDS],
@@ -73,14 +69,14 @@ impl<S: Source<Item = f32>> SpectrumSource<S> {
         let sr = source.sample_rate().get();
         let mut planner = FftPlanner::new();
         let fft = planner.plan_fft_forward(FFT_SIZE);
-        let bin_to_band = compute_bin_to_band(sr);
+        let band_to_bin = compute_band_to_bin(sr);
         let this = Self {
             inner: source,
             frame: frame.clone(),
             buffer: [0.0; FFT_SIZE],
             pos: 0,
             fft,
-            bin_to_band,
+            band_to_bin,
             fft_buf: vec![Complex::new(0.0, 0.0); FFT_SIZE],
             norm_peak: [0.0; BANDS],
             vis_peak: [0.0; BANDS],
@@ -95,33 +91,34 @@ impl<S: Source<Item = f32>> SpectrumSource<S> {
         }
         self.fft.process(&mut self.fft_buf);
 
-        let mut band_sum = [0.0f32; BANDS];
-        let mut band_count = [0usize; BANDS];
-        for bin in 1..=NUM_BINS {
-            let mag = self.fft_buf[bin].norm().sqrt();
-            let b = self.bin_to_band[bin] as usize;
-            band_sum[b] += mag;
-            band_count[b] += 1;
+        // Precompute magnitude of each bin
+        let mut fft_mag = [0.0f32; NUM_BINS + 1];
+        for bin in 0..=NUM_BINS {
+            fft_mag[bin] = self.fft_buf[bin].norm().sqrt();
         }
 
         if let Ok(mut frame) = self.frame.lock() {
             for i in 0..BANDS {
-                let avg = if band_count[i] > 0 {
-                    band_sum[i] / band_count[i] as f32
-                } else {
-                    0.0
-                };
+                // Linearly interpolate the magnitude from the surrounding FFT bins
+                let bin_pos = self.band_to_bin[i];
+                let idx = bin_pos.floor() as usize;
+                let frac = bin_pos - idx as f32;
+                let next = (idx + 1).min(NUM_BINS);
+                let val = fft_mag[idx] * (1.0 - frac) + fft_mag[next] * frac;
 
+                // Peak normalization/scaling (keeps values dynamic)
                 self.norm_peak[i] *= 0.995;
-                self.norm_peak[i] = self.norm_peak[i].max(avg);
+                self.norm_peak[i] = self.norm_peak[i].max(val);
                 let normalized = if self.norm_peak[i] > 0.0 {
-                    avg / self.norm_peak[i]
+                    val / self.norm_peak[i]
                 } else {
                     0.0
                 };
 
+                // Apply smoothing
                 frame.bands[i] = frame.bands[i] * 0.7 + normalized * 0.3;
 
+                // Peak decay tracking
                 self.vis_peak[i] *= 0.98;
                 self.vis_peak[i] = self.vis_peak[i].max(frame.bands[i]);
                 frame.peaks[i] = self.vis_peak[i];
