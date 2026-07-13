@@ -332,22 +332,5 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
 }
 
 fn render_right_panel(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
-    let border_color = if state.focus == Focus::SearchInput || state.focus == Focus::SearchResults {
-        theme.border_active
-    } else {
-        theme.border_inactive
-    };
-
-    let inner_area = {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title(format!(" 🔍 {} ", state.tr("browse_title")))
-            .border_style(Style::default().fg(border_color));
-        let inner = block.inner(area);
-        block.render(area, frame.buffer_mut());
-        inner
-    };
-
-    search_screen::render(frame, inner_area, state, theme);
+    search_screen::render(frame, area, state, theme);
 }
