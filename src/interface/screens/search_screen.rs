@@ -51,7 +51,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
             let content = vec![Line::from(vec![
                 Span::styled(
                     format!(" {:2}. ", i + 1),
-                    Style::default().fg(theme.text_muted),
+                    Style::default().fg(if i == state.selected_index { theme.highlight_fg } else { theme.text_muted }),
                 ),
                 Span::styled(
                     &song.title,
@@ -59,12 +59,12 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
                         .fg(if i == state.selected_index { theme.highlight_fg } else { theme.text })
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(" — ", Style::default().fg(theme.separator)),
-                Span::styled(&song.channel, Style::default().fg(theme.text_secondary)),
+                Span::styled(" — ", Style::default().fg(if i == state.selected_index { theme.highlight_fg } else { theme.separator })),
+                Span::styled(&song.channel, Style::default().fg(if i == state.selected_index { theme.highlight_fg } else { theme.text_secondary })),
                 Span::raw(" "),
                 Span::styled(
                     format!("[{}]", duration),
-                    Style::default().fg(theme.warning),
+                    Style::default().fg(if i == state.selected_index { theme.highlight_fg } else { theme.warning }),
                 ),
             ])];
 

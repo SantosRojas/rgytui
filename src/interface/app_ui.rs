@@ -297,7 +297,9 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
                 format!("  {:2}.", i + 1)
             };
 
-            let prefix_color = if i == state.queue_current {
+            let prefix_color = if i == state.queue_selected {
+                theme.highlight_fg
+            } else if i == state.queue_current {
                 theme.accent
             } else if i < state.queue_current {
                 theme.success
