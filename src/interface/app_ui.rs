@@ -195,7 +195,7 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .title(" 🎵 Now Playing ")
+            .title(format!(" 🎵{}", state.tr("now_playing_title")))
             .border_style(Style::default().fg(theme.accent));
         let inner = block.inner(area);
         block.render(area, frame.buffer_mut());
