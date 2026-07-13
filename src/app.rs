@@ -201,6 +201,7 @@ impl App {
                 }
                 _ = tokio::time::sleep(Duration::from_millis(200)) => {
                     self.update_progress();
+                    self.ui.tick_spinner();
                     false
                 }
             };

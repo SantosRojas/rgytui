@@ -55,6 +55,7 @@ pub struct UiState {
     pub show_download_popup: bool,
     pub download_format: usize,
     pub download_song: Option<Song>,
+    pub spinner_frame: usize,
     pub download_pending: Option<(Song, String, String)>,
     pub notification: Option<Notification>,
     pub language: String,
@@ -92,6 +93,7 @@ impl Default for UiState {
             download_song: None,
             download_pending: None,
             notification: None,
+            spinner_frame: 0,
             language: "es".into(),
             translations: Translations::load("es"),
         }
@@ -116,5 +118,14 @@ impl UiState {
         let filled = (vol * 20.0) as usize;
         let empty = 20usize.saturating_sub(filled);
         format!("{}█{}", "█".repeat(filled), "░".repeat(empty))
+    }
+
+    pub fn tick_spinner(&mut self) {
+        self.spinner_frame = self.spinner_frame.wrapping_add(1);
+    }
+
+    pub fn spinner_char(&self) -> &'static str {
+        const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        SPINNER[self.spinner_frame % SPINNER.len()]
     }
 }

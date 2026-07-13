@@ -1,11 +1,13 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::{Color, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph, Widget};
 
 pub struct InputBox<'a> {
     block: Option<Block<'a>>,
     value: &'a str,
+    placeholder: &'a str,
 }
 
 impl<'a> InputBox<'a> {
@@ -13,6 +15,7 @@ impl<'a> InputBox<'a> {
         Self {
             block: None,
             value: "",
+            placeholder: "",
         }
     }
 
@@ -23,6 +26,11 @@ impl<'a> InputBox<'a> {
 
     pub fn value(mut self, value: &'a str) -> Self {
         self.value = value;
+        self
+    }
+
+    pub fn placeholder(mut self, placeholder: &'a str) -> Self {
+        self.placeholder = placeholder;
         self
     }
 }
@@ -37,19 +45,20 @@ impl Widget for InputBox<'_> {
             area
         };
 
-        let cursor_visible = if self.value.is_empty() {
-            " "
+        if self.value.is_empty() {
+            // Show placeholder in muted color with blinking cursor
+            let paragraph = Paragraph::new(Line::from(vec![
+                ratatui::text::Span::styled("█", Style::default().fg(Color::White)),
+                ratatui::text::Span::styled(
+                    format!(" {}", self.placeholder),
+                    Style::default().fg(Color::Rgb(80, 80, 90)),
+                ),
+            ]));
+            paragraph.render(inner, buf);
         } else {
-            ""
-        };
-
-        let display = if self.value.is_empty() {
-            format!("{}{}", self.value, "█")
-        } else {
-            format!("{}█{}", self.value, cursor_visible)
-        };
-
-        let paragraph = Paragraph::new(Line::from(display));
-        paragraph.render(inner, buf);
+            let display = format!("{}█", self.value);
+            let paragraph = Paragraph::new(Line::from(display));
+            paragraph.render(inner, buf);
+        }
     }
 }

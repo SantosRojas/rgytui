@@ -8,7 +8,7 @@ use rodio::Source;
 use rustfft::{Fft, FftPlanner};
 
 const FFT_SIZE: usize = 256;
-pub const BANDS: usize = 16;
+pub const BANDS: usize = 32;
 const NUM_BINS: usize = FFT_SIZE / 2;
 
 #[derive(Clone, Copy, Debug, Default)]

@@ -1,61 +1,67 @@
 use ratatui::layout::{Alignment, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, BorderType, Paragraph};
 use ratatui::Frame;
 
 use crate::interface::i18n::Translations;
+use crate::interface::theme::Theme;
 
-pub fn render(frame: &mut Frame, area: Rect, translations: &Translations) {
+pub fn render(frame: &mut Frame, area: Rect, translations: &Translations, theme: &Theme) {
     let t = |k: &str| translations.t(k);
+
+    let section_style = Style::default().fg(theme.accent).add_modifier(Modifier::BOLD);
+    let key_style = Style::default().fg(theme.text);
+    let muted_style = Style::default().fg(theme.text_muted);
+
     let help_text = vec![
         Line::from(vec![Span::styled(
             t("help_title"),
             Style::default()
-                .fg(Color::Cyan)
+                .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
         Line::from(vec![
-            Span::styled(t("help_nav"), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(t("help_nav"), section_style),
         ]),
-        Line::from(t("help_nav_tab")),
-        Line::from(t("help_nav_updown")),
-        Line::from(t("help_nav_slash")),
+        Line::from(Span::styled(t("help_nav_tab"), key_style)),
+        Line::from(Span::styled(t("help_nav_updown"), key_style)),
+        Line::from(Span::styled(t("help_nav_slash"), key_style)),
         Line::from(""),
         Line::from(vec![
-            Span::styled(t("help_playback"), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(t("help_playback"), section_style),
         ]),
-        Line::from(t("help_playback_enter")),
-        Line::from(t("help_playback_space")),
-        Line::from(t("help_playback_s")),
-        Line::from(t("help_playback_n")),
-        Line::from(t("help_playback_p")),
-        Line::from(t("help_playback_vol")),
-        Line::from(t("help_playback_v")),
+        Line::from(Span::styled(t("help_playback_enter"), key_style)),
+        Line::from(Span::styled(t("help_playback_space"), key_style)),
+        Line::from(Span::styled(t("help_playback_s"), key_style)),
+        Line::from(Span::styled(t("help_playback_n"), key_style)),
+        Line::from(Span::styled(t("help_playback_p"), key_style)),
+        Line::from(Span::styled(t("help_playback_vol"), key_style)),
+        Line::from(Span::styled(t("help_playback_v"), key_style)),
         Line::from(""),
         Line::from(vec![
-            Span::styled(t("help_queue"), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(t("help_queue"), section_style),
         ]),
-        Line::from(t("help_queue_d")),
-        Line::from(t("help_queue_c")),
+        Line::from(Span::styled(t("help_queue_d"), key_style)),
+        Line::from(Span::styled(t("help_queue_c"), key_style)),
         Line::from(""),
         Line::from(vec![
-            Span::styled(t("help_search"), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(t("help_search"), section_style),
         ]),
-        Line::from(t("help_search_slash")),
-        Line::from(t("help_search_a")),
+        Line::from(Span::styled(t("help_search_slash"), key_style)),
+        Line::from(Span::styled(t("help_search_a"), key_style)),
         Line::from(""),
         Line::from(vec![
-            Span::styled(t("help_general"), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(t("help_general"), section_style),
         ]),
-        Line::from(t("help_general_esc")),
-        Line::from(t("help_general_question")),
-        Line::from(t("help_general_q")),
-        Line::from(t("help_general_ctrlq")),
+        Line::from(Span::styled(t("help_general_esc"), key_style)),
+        Line::from(Span::styled(t("help_general_question"), key_style)),
+        Line::from(Span::styled(t("help_general_q"), key_style)),
+        Line::from(Span::styled(t("help_general_ctrlq"), key_style)),
         Line::from(""),
         Line::from(vec![
-            Span::styled(t("help_close"), Style::default().fg(Color::DarkGray)),
+            Span::styled(t("help_close"), muted_style),
         ]),
     ];
 
@@ -63,8 +69,9 @@ pub fn render(frame: &mut Frame, area: Rect, translations: &Translations) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(t("help_block_title"))
-                .border_style(Style::default().fg(Color::Cyan)),
+                .border_type(BorderType::Rounded)
+                .title(format!(" ❓ {} ", t("help_block_title")))
+                .border_style(Style::default().fg(theme.accent)),
         )
         .alignment(Alignment::Left);
 

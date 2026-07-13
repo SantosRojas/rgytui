@@ -8,6 +8,7 @@ use crate::domain::player_state::PlayerState;
 use crate::infrastructure::audio::AudioMode;
 use crate::interface::i18n::Translations;
 use crate::interface::state::Focus;
+use crate::interface::theme::Theme;
 
 pub struct StatusBar {
     player_state: PlayerState,
@@ -15,7 +16,7 @@ pub struct StatusBar {
     volume: f32,
     focus: Focus,
     translations: Translations,
-    accent_color: Color,
+    theme: Theme,
 }
 
 impl StatusBar {
@@ -26,7 +27,7 @@ impl StatusBar {
             volume: 0.8,
             focus: Focus::SearchInput,
             translations: Translations::load("es"),
-            accent_color: Color::Cyan,
+            theme: Theme::default(),
         }
     }
 
@@ -55,8 +56,8 @@ impl StatusBar {
         self
     }
 
-    pub fn accent_color(mut self, c: Color) -> Self {
-        self.accent_color = c;
+    pub fn theme(mut self, t: Theme) -> Self {
+        self.theme = t;
         self
     }
 }
@@ -64,22 +65,24 @@ impl StatusBar {
 impl Widget for StatusBar {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let t = |k: &str| self.translations.t(k);
+        let th = &self.theme;
+        let sep = Span::styled("  ◆  ", Style::default().fg(th.separator));
 
         let state_label = match self.player_state {
-            PlayerState::Idle => Span::styled(t("status_idle"), Style::default().fg(Color::Gray)),
-            PlayerState::Loading => Span::styled(t("status_loading"), Style::default().fg(Color::Yellow)),
-            PlayerState::Playing => Span::styled(t("status_playing"), Style::default().fg(Color::Green)),
-            PlayerState::Paused => Span::styled(t("status_paused"), Style::default().fg(Color::Yellow)),
-            PlayerState::Stopped => Span::styled(t("status_stopped"), Style::default().fg(Color::Red)),
+            PlayerState::Idle => Span::styled(t("status_idle"), Style::default().fg(th.text_muted)),
+            PlayerState::Loading => Span::styled(t("status_loading"), Style::default().fg(th.warning)),
+            PlayerState::Playing => Span::styled(t("status_playing"), Style::default().fg(th.success)),
+            PlayerState::Paused => Span::styled(t("status_paused"), Style::default().fg(th.warning)),
+            PlayerState::Stopped => Span::styled(t("status_stopped"), Style::default().fg(th.error)),
         };
 
         let mode_label = match self.audio_mode {
-            AudioMode::Audio => Span::styled(t("status_audio"), Style::default().fg(Color::Cyan)),
-            AudioMode::Video => Span::styled(t("status_video"), Style::default().fg(Color::Magenta)),
+            AudioMode::Audio => Span::styled(t("status_audio"), Style::default().fg(th.accent)),
+            AudioMode::Video => Span::styled(t("status_video"), Style::default().fg(Color::Rgb(200, 120, 255))),
         };
 
         let vol = (self.volume * 100.0) as u8;
-        let vol_bar = if vol > 50 {
+        let vol_icon = if vol > 50 {
             "🔊"
         } else if vol > 0 {
             "🔉"
@@ -90,32 +93,32 @@ impl Widget for StatusBar {
         let line = Line::from(vec![
             Span::raw("  "),
             state_label,
-            Span::raw("  │  "),
+            sep.clone(),
             mode_label,
-            Span::raw("  │  "),
+            sep.clone(),
             Span::styled(
-                format!("{} {:3}%", vol_bar, vol),
-                Style::default().fg(Color::Yellow),
+                format!("{} {:3}%", vol_icon, vol),
+                Style::default().fg(th.warning),
             ),
-            Span::raw("  │  "),
+            sep.clone(),
             Span::styled(
                 match self.focus {
                     Focus::SearchInput => t("hint_search_input"),
                     Focus::SearchResults => t("hint_search_results"),
                     Focus::QueueList => t("hint_queue"),
                 },
-                Style::default().fg(self.accent_color),
+                Style::default().fg(th.accent),
             ),
-            Span::raw("  │  "),
+            sep,
             Span::styled(t("hint_general"),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(th.text_muted),
             ),
         ]);
 
         let block = Block::default().style(
             Style::default()
-                .fg(Color::White)
-                .bg(Color::Rgb(30, 30, 30)),
+                .fg(th.text)
+                .bg(th.panel_bg),
         );
 
         let paragraph = Paragraph::new(line).block(block);

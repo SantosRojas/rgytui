@@ -2,7 +2,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::prelude::Widget;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, BorderType, List, ListItem, Paragraph};
 use ratatui::Frame;
 
 use crate::infrastructure::audio::AudioMode;
@@ -30,17 +30,17 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode) {
     let status_area = chunks[2];
 
     let title_text = Line::from(vec![
-        Span::styled(" rgytui ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-        Span::styled(state.tr("app_subtitle"), Style::default().fg(Color::DarkGray)),
-        Span::raw("  —  "),
-        Span::styled("Desarrollado por Santos Rojas", Style::default().fg(Color::DarkGray)),
+        Span::styled(" 🎵 rgytui ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(state.tr("app_subtitle"), Style::default().fg(theme.text_muted)),
+        Span::styled("  ◆  ", Style::default().fg(theme.separator)),
+        Span::styled("Santos Rojas", Style::default().fg(theme.text_muted)),
     ]);
     let title = Paragraph::new(title_text).style(Style::default().bg(theme.panel_bg));
     frame.render_widget(title, title_area);
 
     match state.active_screen {
         ActiveScreen::Help => {
-            help_screen::render(frame, main_area, &state.translations);
+            help_screen::render(frame, main_area, &state.translations, &theme);
         }
         ActiveScreen::Settings => {
             settings_screen::render(frame, main_area, state, &theme);
@@ -59,32 +59,33 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode) {
         .volume(state.volume)
         .focus(state.focus)
         .translations(state.translations.clone())
-        .accent_color(theme.accent);
+        .theme(theme);
     frame.render_widget(status_bar, status_area);
 
     if let Some(ref err) = state.error_message {
         let err_widget = Paragraph::new(Line::from(Span::styled(
             err,
-            Style::default().fg(Color::Red),
+            Style::default().fg(theme.error),
         )))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Red)),
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(theme.error)),
         );
         frame.render_widget(err_widget, main_area);
     }
 
     if state.show_download_popup {
-        render_download_popup(frame, frame.area(), state);
+        render_download_popup(frame, frame.area(), state, &theme);
     }
 
     if let Some(ref n) = state.notification {
-        render_notification(frame, frame.area(), n);
+        render_notification(frame, frame.area(), n, &theme);
     }
 }
 
-fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState) {
+fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let formats = [
         ("m4a",  state.tr("fmt_aac")),
         ("mp3",  state.tr("fmt_mp3")),
@@ -98,15 +99,15 @@ fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState) {
         let content = Line::from(vec![
             Span::styled(
                 format!(" {:4} ", name),
-                Style::default().fg(if selected { Color::White } else { Color::DarkGray }),
+                Style::default().fg(if selected { theme.text } else { theme.text_muted }),
             ),
             Span::styled(
                 desc.clone(),
-                Style::default().fg(if selected { Color::White } else { Color::Gray }),
+                Style::default().fg(if selected { theme.text } else { theme.text_secondary }),
             ),
         ]);
         ListItem::new(content).style(if selected {
-            Style::default().bg(Color::Rgb(60, 60, 60))
+            Style::default().bg(Color::Rgb(45, 45, 55))
         } else {
             Style::default()
         })
@@ -116,29 +117,36 @@ fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(state.tr("download_title"))
-                .border_style(Style::default().fg(Color::Cyan)),
+                .border_type(BorderType::Rounded)
+                .title(format!(" 💾 {} ", state.tr("download_title")))
+                .border_style(Style::default().fg(theme.accent)),
         )
-        .highlight_style(Style::default().bg(Color::Rgb(60, 60, 60)))
+        .highlight_style(Style::default().bg(Color::Rgb(45, 45, 55)))
         .highlight_symbol("▸");
 
     let popup_area = centered_rect(40, formats.len() as u16 + 2, area);
     frame.render_widget(popup, popup_area);
 }
 
-fn render_notification(frame: &mut Frame, area: Rect, notification: &crate::interface::state::Notification) {
+fn render_notification(frame: &mut Frame, area: Rect, notification: &crate::interface::state::Notification, theme: &Theme) {
     let icon = if notification.success { "✅" } else { "❌" };
     let text = Line::from(vec![
         Span::styled(format!(" {} ", icon), Style::default()),
-        Span::styled(&notification.message, Style::default().fg(Color::White)),
+        Span::styled(&notification.message, Style::default().fg(theme.text)),
     ]);
+    let (border_color, bg_color) = if notification.success {
+        (theme.success, Color::Rgb(20, 50, 25))
+    } else {
+        (theme.error, Color::Rgb(50, 20, 20))
+    };
     let widget = Paragraph::new(text)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(if notification.success { Color::Green } else { Color::Red })),
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(border_color)),
         )
-        .style(Style::default().bg(if notification.success { Color::Rgb(30, 60, 30) } else { Color::Rgb(60, 30, 30) }));
+        .style(Style::default().bg(bg_color));
 
     let notif_area = centered_rect(
         (notification.message.len() + 6).min(60) as u16,
@@ -181,7 +189,8 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
     let inner_area = {
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(state.tr("now_playing_title"))
+            .border_type(BorderType::Rounded)
+            .title(" 🎵 Now Playing ")
             .border_style(Style::default().fg(theme.accent));
         let inner = block.inner(area);
         block.render(area, frame.buffer_mut());
@@ -189,23 +198,39 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
     };
 
     if let Some(ref song) = state.current_song {
+        let status_icon = match state.player_state {
+            crate::domain::player_state::PlayerState::Playing => "▶",
+            crate::domain::player_state::PlayerState::Paused  => "⏸",
+            crate::domain::player_state::PlayerState::Loading => "⟳",
+            _                                                   => "⏹",
+        };
+
         let lines = vec![
+            Line::from(vec![
+                Span::styled(format!(" {} ", status_icon), Style::default().fg(theme.accent)),
+                Span::styled(
+                    &song.title,
+                    Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+                ),
+            ]),
             Line::from(Span::styled(
-                &song.title,
-                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+                "─".repeat((inner_area.width as usize).saturating_sub(2)),
+                Style::default().fg(theme.separator),
             )),
-            Line::from(Span::styled(&song.channel, Style::default().fg(Color::Gray))),
-            Line::from(Span::raw("")),
+            Line::from(vec![
+                Span::styled(" 🎤 ", Style::default()),
+                Span::styled(&song.channel, Style::default().fg(theme.text_secondary)),
+            ]),
             Line::from(Span::styled(
-                format!("{:02}:{:02} / {:02}:{:02}",
+                format!("  {:02}:{:02} / {:02}:{:02}",
                     state.progress as u64 / 60, state.progress as u64 % 60,
                     state.duration as u64 / 60, state.duration as u64 % 60),
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(theme.warning),
             )),
         ];
-        let paragraph = Paragraph::new(lines).alignment(ratatui::layout::Alignment::Center);
+        let paragraph = Paragraph::new(lines);
 
-        if inner_area.height > 4 {
+        if inner_area.height > 5 {
             let sub = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(4), Constraint::Min(1)])
@@ -218,10 +243,13 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
             frame.render_widget(paragraph, inner_area);
         }
     } else {
-        let no_song = Paragraph::new(Line::from(Span::styled(
-            state.tr("no_track_loaded"),
-            Style::default().fg(Color::DarkGray),
-        )))
+        let no_song = Paragraph::new(Line::from(vec![
+            Span::styled(" ♫ ", Style::default().fg(theme.text_muted)),
+            Span::styled(
+                state.tr("no_track_loaded"),
+                Style::default().fg(theme.text_muted),
+            ),
+        ]))
         .alignment(ratatui::layout::Alignment::Center);
         frame.render_widget(no_song, inner_area);
     }
@@ -229,15 +257,17 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
 
 fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let border_color = if state.focus == Focus::QueueList {
-        theme.accent
+        theme.border_active
     } else {
-        Color::DarkGray
+        theme.border_inactive
     };
 
+    let queue_title = format!(" 📋 {} ", state.tr("queue_title").replace("{}", &state.queue_songs.len().to_string()));
     let inner_area = {
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(state.tr("queue_title").replace("{}", &state.queue_songs.len().to_string()))
+            .border_type(BorderType::Rounded)
+            .title(queue_title)
             .border_style(Style::default().fg(border_color));
         let inner = block.inner(area);
         block.render(area, frame.buffer_mut());
@@ -247,7 +277,7 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     if state.queue_songs.is_empty() {
         let empty = Paragraph::new(Line::from(Span::styled(
             state.tr("queue_empty"),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme.text_muted),
         )))
         .alignment(ratatui::layout::Alignment::Center);
         frame.render_widget(empty, inner_area);
@@ -259,9 +289,25 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         .iter()
         .enumerate()
         .map(|(i, song)| {
-            let prefix = if i == state.queue_current { "▶ " } else { "  " };
+            let prefix = if i == state.queue_current {
+                format!("▶ {:2}.", i + 1)
+            } else if i < state.queue_current {
+                format!("✓ {:2}.", i + 1)
+            } else {
+                format!("  {:2}.", i + 1)
+            };
+
+            let prefix_color = if i == state.queue_current {
+                theme.accent
+            } else if i < state.queue_current {
+                theme.success
+            } else {
+                theme.text_muted
+            };
+
             let content = vec![Line::from(vec![
-                Span::styled(prefix, if i == state.queue_current { theme.accent } else { Color::DarkGray }),
+                Span::styled(prefix, Style::default().fg(prefix_color)),
+                Span::styled(" ", Style::default()),
                 Span::styled(
                     &song.title,
                     Style::default().fg(if i == state.queue_selected {
@@ -287,15 +333,16 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
 
 fn render_right_panel(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let border_color = if state.focus == Focus::SearchInput || state.focus == Focus::SearchResults {
-        theme.accent
+        theme.border_active
     } else {
-        Color::DarkGray
+        theme.border_inactive
     };
 
     let inner_area = {
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(state.tr("browse_title"))
+            .border_type(BorderType::Rounded)
+            .title(format!(" 🔍 {} ", state.tr("browse_title")))
             .border_style(Style::default().fg(border_color));
         let inner = block.inner(area);
         block.render(area, frame.buffer_mut());

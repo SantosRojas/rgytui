@@ -1,7 +1,7 @@
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, BorderType, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use crate::interface::state::UiState;
@@ -23,7 +23,12 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
     )))
     .alignment(Alignment::Center)
-    .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(theme.accent)));
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.accent)),
+    );
     frame.render_widget(title, chunks[0]);
 
     let items = vec![
@@ -33,7 +38,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         ])),
         ListItem::new(Line::from(vec![
             Span::styled(state.tr("settings_accent"), Style::default().fg(theme.text)),
-            Span::styled(state.accent_color.clone(), Style::default().fg(Color::White)),
+            Span::styled(state.accent_color.clone(), Style::default().fg(theme.text)),
         ])),
         ListItem::new(Line::from(vec![
             Span::styled(state.tr("settings_volume"), Style::default().fg(theme.text)),
@@ -61,7 +66,13 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     ];
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(state.tr("settings_options")))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title(format!(" ⚙️ {} ", state.tr("settings_options")))
+                .border_style(Style::default().fg(theme.border_inactive)),
+        )
         .highlight_style(Style::default().bg(theme.highlight_bg).fg(theme.highlight_fg))
         .highlight_symbol("▸ ");
 
@@ -71,7 +82,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
 
     let hints = Line::from(Span::styled(
         state.tr("settings_hints"),
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(theme.text_muted),
     ));
     frame.render_widget(Paragraph::new(hints).alignment(Alignment::Center), chunks[2]);
 }

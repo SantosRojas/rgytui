@@ -1,7 +1,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem};
+use ratatui::widgets::{Block, Borders, BorderType, List, ListItem};
 use ratatui::Frame;
 
 use crate::interface::components::input_box::InputBox;
@@ -18,27 +18,30 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let results_area = chunks[1];
 
     let title = if state.is_searching {
-        state.tr("search_searching")
+        format!(" {} {} ", state.spinner_char(), state.tr("search_searching"))
     } else {
-        state.tr("search_title")
+        format!(" 🔍 {} ", state.tr("search_title"))
     };
 
+    let placeholder_text = state.tr("search_title");
     let input_box = InputBox::new()
         .block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
                 .title(title)
                 .border_style(if state.focus == Focus::SearchInput {
-                    Style::default().fg(theme.accent)
+                    Style::default().fg(theme.border_active)
                 } else {
-                    Style::default().fg(Color::DarkGray)
+                    Style::default().fg(theme.border_inactive)
                 }),
         )
-        .value(&state.search_query);
+        .value(&state.search_query)
+        .placeholder(&placeholder_text);
 
     frame.render_widget(input_box, search_area);
 
-    let count_text = state.tr("search_results").replace("{}", &state.search_results.len().to_string());
+    let count_text = format!(" ♫ {} ", state.tr("search_results").replace("{}", &state.search_results.len().to_string()));
     let items: Vec<ListItem> = state
         .search_results
         .iter()
@@ -47,17 +50,21 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
             let duration = song.duration_formatted();
             let content = vec![Line::from(vec![
                 Span::styled(
+                    format!(" {:2}. ", i + 1),
+                    Style::default().fg(theme.text_muted),
+                ),
+                Span::styled(
                     &song.title,
                     Style::default()
                         .fg(if i == state.selected_index { theme.highlight_fg } else { theme.text })
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::raw(" — "),
-                Span::styled(&song.channel, Style::default().fg(Color::Gray)),
+                Span::styled(" — ", Style::default().fg(theme.separator)),
+                Span::styled(&song.channel, Style::default().fg(theme.text_secondary)),
                 Span::raw(" "),
                 Span::styled(
                     format!("[{}]", duration),
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(theme.warning),
                 ),
             ])];
 
@@ -70,13 +77,19 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         .collect();
 
     let border_color = if state.focus == Focus::SearchResults {
-        theme.accent
+        theme.border_active
     } else {
-        Color::DarkGray
+        theme.border_inactive
     };
 
     let results_list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(count_text).border_style(Style::default().fg(border_color)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title(count_text)
+                .border_style(Style::default().fg(border_color)),
+        );
 
     frame.render_widget(results_list, results_area);
 }
