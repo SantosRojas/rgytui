@@ -1,20 +1,47 @@
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use rayon::prelude::*;
 
 use crate::application::ports::MediaSearchPort;
 use crate::domain::error::DomainError;
-use crate::domain::media::Song;
-use serde_json::Value;
+use crate::domain::media::{RawSong, Song};
 use tokio::process::Command;
 
+const SEARCH_CACHE_TTL: Duration = Duration::from_secs(60);
+
 #[derive(Clone)]
-pub struct YtDlpClient;
+pub struct YtDlpClient {
+    search_cache: Arc<Mutex<HashMap<String, (Vec<Song>, Instant)>>>,
+}
 
 impl YtDlpClient {
     pub fn new() -> Self {
-        Self
+        Self {
+            search_cache: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    fn cache_key(query: &str, limit: usize) -> String {
+        format!("{}:{}", limit, query)
     }
 
     pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<Song>, DomainError> {
+        let key = Self::cache_key(query, limit);
+
+        // Check cache first
+        {
+            let mut cache = self.search_cache.lock().unwrap();
+            if let Some((songs, timestamp)) = cache.get(&key) {
+                if timestamp.elapsed() < SEARCH_CACHE_TTL {
+                    return Ok(songs.clone());
+                }
+                // Expired entry — remove it
+                cache.remove(&key);
+            }
+        }
+
         let search_query = format!("ytsearch{}:{}", limit, query);
 
         let output = tokio::time::timeout(
@@ -40,25 +67,30 @@ impl YtDlpClient {
             )));
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut songs = Vec::new();
-
-        for line in stdout.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-
-            match serde_json::from_str::<Value>(line) {
-                Ok(json) => {
-                    if let Some(song) = Self::parse_song(&json) {
-                        songs.push(song);
+        // Parse JSON lines in parallel with rayon
+        let stdout = std::str::from_utf8(&output.stdout)
+            .map_err(|e| DomainError::Parse(format!("Invalid UTF-8: {}", e)))?;
+        let songs: Vec<Song> = stdout
+            .par_lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                if line.is_empty() {
+                    return None;
+                }
+                match serde_json::from_str::<RawSong>(line) {
+                    Ok(raw) => Some(Song::from(raw)),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse yt-dlp JSON line: {}", e);
+                        None
                     }
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to parse yt-dlp JSON line: {}", e);
-                }
-            }
+            })
+            .collect();
+
+        // Update cache
+        {
+            let mut cache = self.search_cache.lock().unwrap();
+            cache.insert(key, (songs.clone(), Instant::now()));
         }
 
         Ok(songs)
@@ -169,46 +201,10 @@ impl YtDlpClient {
             )));
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let json: Value = serde_json::from_str(stdout.trim())?;
-
-        Self::parse_song(&json).ok_or_else(|| DomainError::Parse("Failed to parse song metadata".into()))
-    }
-
-    fn parse_song(json: &Value) -> Option<Song> {
-        let id = json.get("id")?.as_str()?.to_string();
-        let title = json.get("title")?.as_str()?.to_string();
-        let channel = json
-            .get("channel")
-            .or_else(|| json.get("uploader"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("Unknown")
-            .to_string();
-        let duration = json
-            .get("duration")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let thumbnail = json.get("thumbnail").and_then(|v| v.as_str()).map(String::from);
-        let webpage_url = json
-            .get("webpage_url")
-            .or_else(|| json.get("id"))
-            .and_then(|v| v.as_str())
-            .map(|s| {
-                if s.starts_with("http") {
-                    s.to_string()
-                } else {
-                    format!("https://youtube.com/watch?v={}", s)
-                }
-            })?;
-
-        Some(Song {
-            id,
-            title,
-            channel,
-            duration,
-            thumbnail,
-            webpage_url,
-        })
+        let stdout = std::str::from_utf8(&output.stdout)
+            .map_err(|e| DomainError::Parse(format!("Invalid UTF-8: {}", e)))?;
+        let raw: RawSong = serde_json::from_str(stdout.trim())?;
+        Ok(Song::from(raw))
     }
 }
 

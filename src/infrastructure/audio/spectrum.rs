@@ -51,6 +51,16 @@ fn compute_band_to_bin(sample_rate: u32) -> [f32; BANDS] {
     band_to_bin
 }
 
+fn get_fft_plan() -> Arc<dyn Fft<f32>> {
+    static FFT_PLAN: OnceLock<Arc<dyn Fft<f32>>> = OnceLock::new();
+    FFT_PLAN
+        .get_or_init(|| {
+            let mut planner = FftPlanner::new();
+            planner.plan_fft_forward(FFT_SIZE)
+        })
+        .clone()
+}
+
 pub struct SpectrumSource<S: Source<Item = f32>> {
     inner: S,
     frame: Arc<Mutex<SpectrumFrame>>,
@@ -67,8 +77,7 @@ impl<S: Source<Item = f32>> SpectrumSource<S> {
     pub fn new(source: S) -> (Self, Arc<Mutex<SpectrumFrame>>) {
         let frame = Arc::new(Mutex::new(SpectrumFrame::default()));
         let sr = source.sample_rate().get();
-        let mut planner = FftPlanner::new();
-        let fft = planner.plan_fft_forward(FFT_SIZE);
+        let fft = get_fft_plan();
         let band_to_bin = compute_band_to_bin(sr);
         let this = Self {
             inner: source,

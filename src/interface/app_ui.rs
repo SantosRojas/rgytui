@@ -13,9 +13,7 @@ use crate::interface::theme::Theme;
 
 const QUEUE_VISIBLE: usize = 5;
 
-pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode) {
-    let theme = Theme::from_settings(&state.theme_name, &state.accent_color);
-
+pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode, theme: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -59,7 +57,7 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode) {
         .volume(state.volume)
         .focus(state.focus)
         .translations(state.translations.clone())
-        .theme(theme);
+        .theme(*theme);
     frame.render_widget(status_bar, status_area);
 
     if let Some(ref err) = state.error_message {

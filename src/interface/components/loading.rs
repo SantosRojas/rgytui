@@ -77,40 +77,23 @@ impl Widget for LoadingWidget {
         for row in (0..wave_rows).rev() {
             let mut spans = Vec::with_capacity(width);
             for col in 0..width {
-                // Sinusoidal wave: amplitude varies per column with phase shift from animation frame
-                let phase = (col as f32 * 0.4) - t;
-                let wave = (phase.sin() * 0.5 + 0.5).clamp(0.0, 1.0);
+                // Single sinusoidal wave: amplitude varies per column with phase shift from animation frame
+                let wave = ((col as f32 * 0.4 - t).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
 
-                // Secondary wave for visual richness
-                let phase2 = (col as f32 * 0.25) + t * 0.7;
-                let wave2 = (phase2.sin() * 0.5 + 0.5).clamp(0.0, 1.0);
-
-                let combined = (wave * 0.65 + wave2 * 0.35).clamp(0.0, 1.0);
-
-                let pixel_height = combined * wave_rows as f32;
+                let pixel_height = wave * wave_rows as f32;
                 let fill = pixel_height - row as f32;
 
                 if fill >= 1.0 {
-                    // Full block — color based on height ratio
                     let height_ratio = row as f32 / wave_rows as f32;
                     let color = lerp_rgb(accent_rgb, bright_rgb, height_ratio);
                     spans.push(Span::styled(WAVE_BLOCKS[7], Style::default().fg(color)));
                 } else if fill > 0.0 {
-                    // Partial block
                     let idx = ((fill * 8.0).floor() as usize).min(7);
                     let height_ratio = row as f32 / wave_rows as f32;
                     let color = lerp_rgb(dim_rgb, accent_rgb, height_ratio + fill * 0.3);
                     spans.push(Span::styled(WAVE_BLOCKS[idx], Style::default().fg(color)));
                 } else {
-                    // Empty — subtle glow dot pattern for ambiance
-                    let glow = ((col as f32 * 0.6 + t * 1.5).sin() * 0.5 + 0.5)
-                        * ((row as f32 * 0.8 - t * 0.5).cos() * 0.5 + 0.5);
-                    if glow > 0.75 {
-                        let c = lerp_rgb((15, 15, 25), dim_rgb, glow - 0.75);
-                        spans.push(Span::styled("·", Style::default().fg(c)));
-                    } else {
-                        spans.push(Span::styled(" ", Style::default()));
-                    }
+                    spans.push(Span::styled(" ", Style::default()));
                 }
             }
             lines.push(Line::from(spans));

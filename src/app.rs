@@ -1,11 +1,12 @@
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{enable_raw_mode, EnterAlternateScreen};
 use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 
 use crate::application::playback::PlaybackUseCase;
 use crate::application::playlist::PlaylistUseCase;
@@ -28,6 +29,9 @@ pub struct App {
     event_tx: mpsc::UnboundedSender<AppEvent>,
     event_rx: mpsc::UnboundedReceiver<AppEvent>,
     pending_play: Option<Song>,
+    last_search: Option<Instant>,
+    download_semaphore: Arc<Semaphore>,
+    last_playlist_version: usize,
 }
 
 impl App {
@@ -80,6 +84,9 @@ impl App {
             event_tx,
             event_rx,
             pending_play: None,
+            last_search: None,
+            download_semaphore: Arc::new(Semaphore::new(3)),
+            last_playlist_version: 0,
         }
     }
 
@@ -91,7 +98,11 @@ impl App {
     }
 
     fn sync_ui_queue(&mut self) {
-        self.ui.queue_songs = self.playlist.songs().to_vec();
+        let current_version = self.playlist.playlist().version;
+        if current_version != self.last_playlist_version {
+            self.ui.queue_songs = self.playlist.songs().to_vec();
+            self.last_playlist_version = current_version;
+        }
         if let Some(song) = self.playlist.playlist().current_song()
             && let Some(pos) = self.ui.queue_songs.iter().position(|s| s.id == song.id)
         {
@@ -139,8 +150,9 @@ impl App {
             }
 
             self.sync_ui_queue();
+            let theme = self.ui.get_or_create_theme();
             terminal.draw(|frame| {
-                app_ui::render(frame, &self.ui, self.playback.mode());
+                app_ui::render(frame, &self.ui, self.playback.mode(), &theme);
             })?;
 
             if let Some(song) = self.pending_play.take() {
@@ -186,22 +198,31 @@ impl App {
             }
 
             if let Some((song, dir, fmt)) = self.ui.download_pending.take() {
-                let song_name = song.title.clone();
-                self.ui.loading_status = Some(self.ui.tr("downloading").replace("{}", &song_name));
-                while self.event_rx.try_recv().is_ok() {}
-                match self.playback.download_song(&song, &dir, &fmt).await {
-                    Ok(_path) => {
-                        self.ui.notification = Some(Notification {
-                            message: self.ui.tr("notif_downloaded").replace("{}", &song_name),
-                            success: true,
-                            timestamp: std::time::Instant::now(),
-                        });
+                let song_title = song.title.clone();
+                let song_title_clone = song_title.clone();
+                let tx = self.event_tx.clone();
+                let ytdlp = self.playback.ytdlp_clone();
+                let sem = self.download_semaphore.clone();
+                tokio::spawn(async move {
+                    let _permit = sem.acquire().await;
+                    std::fs::create_dir_all(&dir).ok();
+                    match ytdlp.download(&song.webpage_url, &dir, &fmt).await {
+                        Ok(path) => {
+                            let _ = tx.send(AppEvent::DownloadComplete {
+                                song_title: song_title_clone,
+                                file_path: path,
+                            });
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppEvent::DownloadError(e.to_string()));
+                        }
                     }
-                    Err(e) => {
-                        self.ui.error_message = Some(self.ui.tr("err_download").replace("{}", &e.to_string()));
-                    }
-                }
-                self.ui.loading_status = None;
+                });
+                self.ui.notification = Some(Notification {
+                    message: self.ui.tr("downloading").replace("{}", &song_title),
+                    success: true,
+                    timestamp: std::time::Instant::now(),
+                });
                 continue;
             }
 
@@ -384,6 +405,7 @@ impl App {
                         } else {
                             "dark".into()
                         };
+                        self.ui.invalidate_theme();
                     }
                     1 => {
                         const PRESETS: &[&str] = &[
@@ -398,6 +420,7 @@ impl App {
                             .map(|i| (i + 1) % PRESETS.len())
                             .unwrap_or(0);
                         self.ui.accent_color = PRESETS[i].to_string();
+                        self.ui.invalidate_theme();
                     }
                     4 => {
                         let dir = tokio::task::spawn_blocking(|| {
@@ -541,10 +564,18 @@ impl App {
             KeyCode::Enter => match self.ui.focus {
                 Focus::SearchInput => {
                     if !self.ui.search_query.is_empty() {
-                        self.ui.is_searching = true;
-                        self.ui.search_results.clear();
-                        let query = self.ui.search_query.clone();
-                        self.spawn_search(query, self.ui.default_search_limit);
+                        // Debounce: ignore rapid consecutive searches
+                        if let Some(last) = self.last_search
+                            && last.elapsed() < Duration::from_millis(300)
+                        {
+                            // too soon — skip
+                        } else {
+                            self.last_search = Some(Instant::now());
+                            self.ui.is_searching = true;
+                            self.ui.search_results.clear();
+                            let query = self.ui.search_query.clone();
+                            self.spawn_search(query, self.ui.default_search_limit);
+                        }
                     }
                 }
                 Focus::SearchResults => {

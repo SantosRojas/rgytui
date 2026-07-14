@@ -4,6 +4,7 @@ use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
 use crate::infrastructure::audio::spectrum::SpectrumFrame;
 use crate::interface::i18n::Translations;
+use crate::interface::theme::Theme;
 
 #[derive(Clone, Debug)]
 pub struct Notification {
@@ -60,6 +61,50 @@ pub struct UiState {
     pub notification: Option<Notification>,
     pub language: String,
     pub translations: Translations,
+    pub cached_theme: Option<Theme>,
+}
+
+impl UiState {
+    pub fn tr(&self, key: &str) -> String {
+        self.translations.t(key)
+    }
+
+    pub fn progress_percent(&self) -> f64 {
+        if self.duration > 0.0 {
+            (self.progress / self.duration * 100.0).clamp(0.0, 100.0)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn volume_bar(&self) -> String {
+        let vol = self.volume.clamp(0.0, 1.0);
+        let filled = (vol * 20.0) as usize;
+        let empty = 20usize.saturating_sub(filled);
+        format!("{}█{}", "█".repeat(filled), "░".repeat(empty))
+    }
+
+    pub fn tick_spinner(&mut self) {
+        self.spinner_frame = self.spinner_frame.wrapping_add(1);
+    }
+
+    pub fn spinner_char(&self) -> &'static str {
+        const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        SPINNER[self.spinner_frame % SPINNER.len()]
+    }
+
+    pub fn get_or_create_theme(&mut self) -> Theme {
+        if let Some(theme) = self.cached_theme {
+            return theme;
+        }
+        let theme = Theme::from_settings(&self.theme_name, &self.accent_color);
+        self.cached_theme = Some(theme);
+        theme
+    }
+
+    pub fn invalidate_theme(&mut self) {
+        self.cached_theme = None;
+    }
 }
 
 impl Default for UiState {
@@ -96,36 +141,7 @@ impl Default for UiState {
             spinner_frame: 0,
             language: "es".into(),
             translations: Translations::load("es"),
+            cached_theme: None,
         }
-    }
-}
-
-impl UiState {
-    pub fn tr(&self, key: &str) -> String {
-        self.translations.t(key)
-    }
-
-    pub fn progress_percent(&self) -> f64 {
-        if self.duration > 0.0 {
-            (self.progress / self.duration * 100.0).clamp(0.0, 100.0)
-        } else {
-            0.0
-        }
-    }
-
-    pub fn volume_bar(&self) -> String {
-        let vol = self.volume.clamp(0.0, 1.0);
-        let filled = (vol * 20.0) as usize;
-        let empty = 20usize.saturating_sub(filled);
-        format!("{}█{}", "█".repeat(filled), "░".repeat(empty))
-    }
-
-    pub fn tick_spinner(&mut self) {
-        self.spinner_frame = self.spinner_frame.wrapping_add(1);
-    }
-
-    pub fn spinner_char(&self) -> &'static str {
-        const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-        SPINNER[self.spinner_frame % SPINNER.len()]
     }
 }

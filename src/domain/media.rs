@@ -4,10 +4,17 @@ use serde::{Deserialize, Serialize};
 pub struct Song {
     pub id: String,
     pub title: String,
+    #[serde(default = "default_channel")]
     pub channel: String,
+    #[serde(default)]
     pub duration: f64,
     pub thumbnail: Option<String>,
+    #[serde(default)]
     pub webpage_url: String,
+}
+
+fn default_channel() -> String {
+    "Unknown".into()
 }
 
 impl Song {
@@ -19,11 +26,47 @@ impl Song {
     }
 }
 
+/// Raw JSON structure from yt-dlp with optional fields for flexible parsing.
+/// Converted to `Song` after deserialization to handle field aliases and defaults.
+#[derive(Deserialize)]
+pub struct RawSong {
+    pub id: String,
+    pub title: String,
+    pub channel: Option<String>,
+    pub uploader: Option<String>,
+    pub duration: Option<f64>,
+    pub thumbnail: Option<String>,
+    pub webpage_url: Option<String>,
+}
+
+impl From<RawSong> for Song {
+    fn from(r: RawSong) -> Self {
+        let channel = r.channel.or(r.uploader).unwrap_or_else(default_channel);
+        let webpage_url = r.webpage_url.unwrap_or_else(|| {
+            if r.id.starts_with("http") {
+                r.id.clone()
+            } else {
+                format!("https://youtube.com/watch?v={}", r.id)
+            }
+        });
+        Song {
+            id: r.id,
+            title: r.title,
+            channel,
+            duration: r.duration.unwrap_or(0.0),
+            thumbnail: r.thumbnail,
+            webpage_url,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Playlist {
     pub name: String,
     pub songs: Vec<Song>,
     pub current_index: usize,
+    #[serde(skip)]
+    pub version: usize,
 }
 
 impl Default for Playlist {
@@ -32,6 +75,7 @@ impl Default for Playlist {
             name: String::from("Queue"),
             songs: Vec::new(),
             current_index: 0,
+            version: 0,
         }
     }
 }
@@ -61,6 +105,7 @@ impl Playlist {
 
     pub fn add(&mut self, song: Song) {
         self.songs.push(song);
+        self.version = self.version.wrapping_add(1);
     }
 
     pub fn remove(&mut self, index: usize) {
@@ -77,12 +122,14 @@ impl Playlist {
             } else if self.current_index >= self.songs.len() {
                 self.current_index = self.songs.len() - 1;
             }
+            self.version = self.version.wrapping_add(1);
         }
     }
 
     pub fn clear(&mut self) {
         self.songs.clear();
         self.current_index = 0;
+        self.version = self.version.wrapping_add(1);
     }
 
     pub fn len(&self) -> usize {
@@ -109,6 +156,7 @@ impl Playlist {
             if index <= self.current_index {
                 self.current_index += 1;
             }
+            self.version = self.version.wrapping_add(1);
         }
     }
 }
