@@ -54,12 +54,12 @@ impl RodioBackend {
 
         self.player.stop();
         self.player.append(source);
-        self.player.set_volume(*self.volume.lock().unwrap());
+        self.player.set_volume(*self.volume.lock().unwrap_or_else(|e| e.into_inner()));
 
-        *self.state.lock().unwrap() = PlayerState::Playing;
-        *self.current_song.lock().unwrap() = Some(song);
-        *self.duration.lock().unwrap() = total_duration;
-        *self.position.lock().unwrap() = 0.0;
+        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = PlayerState::Playing;
+        *self.current_song.lock().unwrap_or_else(|e| e.into_inner()) = Some(song);
+        *self.duration.lock().unwrap_or_else(|e| e.into_inner()) = total_duration;
+        *self.position.lock().unwrap_or_else(|e| e.into_inner()) = 0.0;
 
         Ok(())
     }
@@ -80,12 +80,12 @@ impl RodioBackend {
 
         self.player.stop();
         self.player.append(source);
-        self.player.set_volume(*self.volume.lock().unwrap());
+        self.player.set_volume(*self.volume.lock().unwrap_or_else(|e| e.into_inner()));
 
-        *self.state.lock().unwrap() = PlayerState::Playing;
-        *self.current_song.lock().unwrap() = Some(song);
-        *self.duration.lock().unwrap() = total_duration;
-        *self.position.lock().unwrap() = 0.0;
+        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = PlayerState::Playing;
+        *self.current_song.lock().unwrap_or_else(|e| e.into_inner()) = Some(song);
+        *self.duration.lock().unwrap_or_else(|e| e.into_inner()) = total_duration;
+        *self.position.lock().unwrap_or_else(|e| e.into_inner()) = 0.0;
 
         Ok(())
     }
@@ -96,27 +96,27 @@ impl RodioBackend {
 
     pub fn pause(&mut self) -> Result<(), DomainError> {
         self.player.pause();
-        *self.state.lock().unwrap() = PlayerState::Paused;
+        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = PlayerState::Paused;
         Ok(())
     }
 
     pub fn resume(&mut self) -> Result<(), DomainError> {
         self.player.play();
-        *self.state.lock().unwrap() = PlayerState::Playing;
+        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = PlayerState::Playing;
         Ok(())
     }
 
     pub fn stop(&mut self) -> Result<(), DomainError> {
         self.player.stop();
-        *self.state.lock().unwrap() = PlayerState::Stopped;
-        *self.position.lock().unwrap() = 0.0;
+        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = PlayerState::Stopped;
+        *self.position.lock().unwrap_or_else(|e| e.into_inner()) = 0.0;
         Ok(())
     }
 
     pub fn set_volume(&mut self, vol: f32) {
         let vol = vol.clamp(0.0, 1.0);
         self.player.set_volume(vol);
-        *self.volume.lock().unwrap() = vol;
+        *self.volume.lock().unwrap_or_else(|e| e.into_inner()) = vol;
     }
 
     pub fn volume(&self) -> f32 {
@@ -129,7 +129,7 @@ impl RodioBackend {
 
     pub fn current_position(&self) -> f64 {
         let pos = self.player.get_pos().as_secs_f64();
-        *self.position.lock().unwrap() = pos;
+        *self.position.lock().unwrap_or_else(|e| e.into_inner()) = pos;
         pos
     }
 

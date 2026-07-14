@@ -36,7 +36,9 @@ impl PlaybackUseCase {
     }
 
     pub fn toggle_mode(&mut self) {
-        self.stop().ok();
+        if let Err(e) = self.stop() {
+            tracing::warn!("Failed to stop while toggling mode: {}", e);
+        }
         self.mode = match self.mode {
             AudioMode::Audio => AudioMode::Video,
             AudioMode::Video => AudioMode::Audio,

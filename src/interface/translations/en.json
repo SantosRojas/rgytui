@@ -72,5 +72,14 @@
   "notif_already_in_queue": "Already in queue: '{}'",
   "notif_added_to_queue": "Added '{}' to queue",
   "notif_downloaded": "Downloaded '{}'",
-  "err_download_failed": "Download failed: {}"
+  "err_download_failed": "Download failed: {}",
+  "notif_playing": "▶ Playing",
+  "notif_paused": "⏸ Paused",
+  "notif_resumed": "▶ Resumed",
+  "notif_stopped": "⏹ Stopped",
+  "notif_volume": "Volume: {:.0}%",
+  "notif_theme": "Theme: {}",
+  "notif_accent": "Accent color changed",
+  "notif_search_count": "Found {} results",
+  "err_search": "Search error: {}"
 }

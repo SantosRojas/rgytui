@@ -9,11 +9,13 @@ use crate::domain::error::DomainError;
 use crate::domain::media::{RawSong, Song};
 use tokio::process::Command;
 
+type SearchCache = HashMap<String, (Vec<Song>, Instant)>;
+
 const SEARCH_CACHE_TTL: Duration = Duration::from_secs(60);
 
 #[derive(Clone)]
 pub struct YtDlpClient {
-    search_cache: Arc<Mutex<HashMap<String, (Vec<Song>, Instant)>>>,
+    search_cache: Arc<Mutex<SearchCache>>,
 }
 
 impl YtDlpClient {
@@ -32,7 +34,7 @@ impl YtDlpClient {
 
         // Check cache first
         {
-            let mut cache = self.search_cache.lock().unwrap();
+            let mut cache = self.search_cache.lock().unwrap_or_else(|e| e.into_inner());
             if let Some((songs, timestamp)) = cache.get(&key) {
                 if timestamp.elapsed() < SEARCH_CACHE_TTL {
                     return Ok(songs.clone());
@@ -89,7 +91,7 @@ impl YtDlpClient {
 
         // Update cache
         {
-            let mut cache = self.search_cache.lock().unwrap();
+            let mut cache = self.search_cache.lock().unwrap_or_else(|e| e.into_inner());
             cache.insert(key, (songs.clone(), Instant::now()));
         }
 

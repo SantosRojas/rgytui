@@ -72,5 +72,14 @@
   "notif_already_in_queue": "'{}' ya está en la cola",
   "notif_added_to_queue": "'{}' agregado a la cola",
   "notif_downloaded": "'{}' descargado",
-  "err_download_failed": "Descarga fallida: {}"
+  "err_download_failed": "Descarga fallida: {}",
+  "notif_playing": "▶ Reproduciendo",
+  "notif_paused": "⏸ Pausado",
+  "notif_resumed": "▶ Reanudado",
+  "notif_stopped": "⏹ Detenido",
+  "notif_volume": "Volumen: {:.0}%",
+  "notif_theme": "Tema: {}",
+  "notif_accent": "Color de acento cambiado",
+  "notif_search_count": "{} resultados encontrados",
+  "err_search": "Error de búsqueda: {}"
 }

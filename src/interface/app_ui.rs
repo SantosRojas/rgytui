@@ -8,7 +8,7 @@ use ratatui::Frame;
 use crate::infrastructure::audio::AudioMode;
 use crate::interface::components::status_bar::StatusBar;
 use crate::interface::screens::{help_screen, player_screen, search_screen, settings_screen};
-use crate::interface::state::{ActiveScreen, Focus, UiState};
+use crate::interface::state::{ActiveScreen, Focus, NotificationLevel, UiState};
 use crate::interface::theme::Theme;
 
 const QUEUE_VISIBLE: usize = 5;
@@ -38,16 +38,16 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode, theme: 
 
     match state.active_screen {
         ActiveScreen::Help => {
-            help_screen::render(frame, main_area, &state.translations, &theme);
+            help_screen::render(frame, main_area, &state.translations, theme);
         }
         ActiveScreen::Settings => {
-            settings_screen::render(frame, main_area, state, &theme);
+            settings_screen::render(frame, main_area, state, theme);
         }
         ActiveScreen::Player => {
-            player_screen::render(frame, main_area, state, &theme);
+            player_screen::render(frame, main_area, state, theme);
         }
         ActiveScreen::Search => {
-            render_hybrid(frame, main_area, state, &theme);
+            render_hybrid(frame, main_area, state, theme);
         }
     }
 
@@ -60,27 +60,11 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode, theme: 
         .theme(*theme);
     frame.render_widget(status_bar, status_area);
 
-    if let Some(ref err) = state.error_message {
-        let err_widget = Paragraph::new(Line::from(Span::styled(
-            err,
-            Style::default().fg(theme.error),
-        )))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(theme.error)),
-        );
-        frame.render_widget(err_widget, main_area);
-    }
-
     if state.show_download_popup {
-        render_download_popup(frame, frame.area(), state, &theme);
+        render_download_popup(frame, frame.area(), state, theme);
     }
 
-    if let Some(ref n) = state.notification {
-        render_notification(frame, frame.area(), n, &theme);
-    }
+    render_notifications(frame, frame.area(), state, theme);
 }
 
 fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
@@ -128,39 +112,66 @@ fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState, theme: 
     frame.render_widget(popup, popup_area);
 }
 
-fn render_notification(frame: &mut Frame, area: Rect, notification: &crate::interface::state::Notification, theme: &Theme) {
-    let icon = if notification.success { "✅" } else { "❌" };
-    let text = Line::from(vec![
-        Span::styled(format!(" {} ", icon), Style::default()),
-        Span::styled(&notification.message, Style::default().fg(theme.text)),
-    ]);
-    let (border_color, bg_color) = if notification.success {
-        (theme.success, Color::Rgb(20, 50, 25))
-    } else {
-        (theme.error, Color::Rgb(50, 20, 20))
-    };
-    let widget = Paragraph::new(text)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(border_color))
-                .style(Style::default().bg(bg_color)),
-        );
-
-    let notif_area = centered_rect(
-        (notification.message.len() + 6).min(60) as u16,
-        3,
-        area,
-    );
-    frame.render_widget(Clear, notif_area);
-    frame.render_widget(widget, notif_area);
-}
-
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
     Rect { x, y, width, height }
+}
+
+fn render_notifications(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
+    let notifications: Vec<&crate::interface::state::Notification> = state.active_notifications().collect();
+    if notifications.is_empty() {
+        return;
+    }
+
+    // Stack notifications from bottom-right upward
+    let notif_width = 48u16.min(area.width.saturating_sub(4));
+    let mut y_offset = area.y + area.height.saturating_sub(2);
+
+    for notification in notifications.iter().rev() {
+        let notif_height = 3u16;
+        if y_offset < notif_height + 1 {
+            break;
+        }
+        y_offset = y_offset.saturating_sub(notif_height);
+
+        let (border_color, bg_color) = match notification.level {
+            NotificationLevel::Info    => (theme.accent, Color::Rgb(20, 25, 45)),
+            NotificationLevel::Success => (theme.success, Color::Rgb(20, 50, 25)),
+            NotificationLevel::Warning => (theme.warning, Color::Rgb(50, 45, 20)),
+            NotificationLevel::Error   => (theme.error, Color::Rgb(50, 20, 20)),
+        };
+
+        let notif_area = Rect {
+            x: area.x + area.width.saturating_sub(notif_width) - 1,
+            y: y_offset,
+            width: notif_width,
+            height: notif_height,
+        };
+
+        let text = Line::from(vec![
+            Span::styled(
+                format!(" {} ", notification.icon()),
+                Style::default().fg(border_color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                &notification.message,
+                Style::default().fg(theme.text),
+            ),
+        ]);
+
+        let widget = Paragraph::new(text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(border_color))
+                    .style(Style::default().bg(bg_color)),
+            );
+
+        frame.render_widget(Clear, notif_area);
+        frame.render_widget(widget, notif_area);
+    }
 }
 
 fn render_hybrid(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {

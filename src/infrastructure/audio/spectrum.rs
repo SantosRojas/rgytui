@@ -41,12 +41,12 @@ fn compute_band_to_bin(sample_rate: u32) -> [f32; BANDS] {
     let log_max = nyquist.ln();
 
     let mut band_to_bin = [0.0f32; BANDS];
-    for b in 0..BANDS {
+    for (b, val) in band_to_bin.iter_mut().enumerate() {
         let t = b as f32 / (BANDS - 1).max(1) as f32;
         let freq = (log_min + (log_max - log_min) * t).exp();
         let bin_pos = freq / bin_width;
         // Keep it within valid bins [1.0, NUM_BINS]
-        band_to_bin[b] = bin_pos.clamp(1.0, NUM_BINS as f32);
+        *val = bin_pos.clamp(1.0, NUM_BINS as f32);
     }
     band_to_bin
 }
@@ -102,8 +102,8 @@ impl<S: Source<Item = f32>> SpectrumSource<S> {
 
         // Precompute magnitude of each bin
         let mut fft_mag = [0.0f32; NUM_BINS + 1];
-        for bin in 0..=NUM_BINS {
-            fft_mag[bin] = self.fft_buf[bin].norm().sqrt();
+        for (bin, val) in fft_mag.iter_mut().enumerate() {
+            *val = self.fft_buf[bin].norm().sqrt();
         }
 
         if let Ok(mut frame) = self.frame.lock() {

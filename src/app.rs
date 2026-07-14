@@ -16,7 +16,7 @@ use crate::domain::player_state::PlayerState;
 use crate::infrastructure::config::store::ConfigStore;
 use crate::interface::app_ui;
 use crate::interface::i18n::Translations;
-use crate::interface::state::{ActiveScreen, Focus, Notification, UiState};
+use crate::interface::state::{ActiveScreen, Focus, NotificationLevel, UiState};
 use crate::shared::event::AppEvent;
 
 pub struct App {
@@ -143,11 +143,7 @@ impl App {
         let _guard = TerminalGuard;
 
         loop {
-            if let Some(ref n) = self.ui.notification
-                && n.timestamp.elapsed() > Duration::from_secs(5)
-            {
-                self.ui.notification = None;
-            }
+            self.ui.dismiss_old_notifications();
 
             self.sync_ui_queue();
             let theme = self.ui.get_or_create_theme();
@@ -171,7 +167,7 @@ impl App {
                             }
                             Err(e) => {
                                 self.ui.player_state = PlayerState::Stopped;
-                                self.ui.error_message = Some(self.ui.tr("err_playback").replace("{}", &e.to_string()));
+                                self.ui.push_notification(self.ui.tr("err_playback").replace("{}", &e.to_string()), NotificationLevel::Error);
                                 self.ui.loading_status = None;
                                 self.ui.current_song = None;
                             }
@@ -205,7 +201,9 @@ impl App {
                 let sem = self.download_semaphore.clone();
                 tokio::spawn(async move {
                     let _permit = sem.acquire().await;
-                    std::fs::create_dir_all(&dir).ok();
+                    if let Err(e) = std::fs::create_dir_all(&dir) {
+                        tracing::warn!("Failed to create download directory: {}", e);
+                    }
                     match ytdlp.download(&song.webpage_url, &dir, &fmt).await {
                         Ok(path) => {
                             let _ = tx.send(AppEvent::DownloadComplete {
@@ -218,11 +216,7 @@ impl App {
                         }
                     }
                 });
-                self.ui.notification = Some(Notification {
-                    message: self.ui.tr("downloading").replace("{}", &song_title),
-                    success: true,
-                    timestamp: std::time::Instant::now(),
-                });
+                self.ui.push_notification(self.ui.tr("downloading").replace("{}", &song_title), NotificationLevel::Info);
                 continue;
             }
 
@@ -232,7 +226,7 @@ impl App {
                         Ok(true) => true,
                         Ok(false) => false,
                         Err(e) => {
-                            self.ui.error_message = Some(self.ui.tr("err_generic").replace("{}", &e.to_string()));
+                            self.ui.push_notification(self.ui.tr("err_generic").replace("{}", &e.to_string()), NotificationLevel::Error);
                             false
                         }
                     }
@@ -258,7 +252,9 @@ impl App {
     }
 
     fn on_exit(&mut self) {
-        self.playback.stop().ok();
+        if let Err(e) = self.playback.stop() {
+            tracing::warn!("Failed to stop playback on exit: {}", e);
+        }
         let s = self.config.settings_mut();
         s.volume = self.playback.volume();
         s.theme = self.ui.theme_name.clone();
@@ -266,7 +262,9 @@ impl App {
         s.default_search_limit = self.ui.default_search_limit;
         s.download_path = self.ui.download_path.clone();
         s.language = self.ui.language.clone();
-        self.config.save_settings().ok();
+        if let Err(e) = self.config.save_settings() {
+            tracing::warn!("Failed to save settings: {}", e);
+        }
         if let Err(e) = self.config.save_playlist(self.playlist.playlist()) {
             tracing::warn!("Failed to save playlist: {}", e);
         }
@@ -283,7 +281,9 @@ impl App {
             if self.playback.state() == PlayerState::Playing
                 && self.playback.is_sink_empty()
             {
-                self.playback.stop().ok();
+                if let Err(e) = self.playback.stop() {
+                    tracing::warn!("Failed to stop on auto-advance: {}", e);
+                }
                 self.ui.player_state = PlayerState::Stopped;
                 self.ui.progress = 0.0;
 
@@ -300,15 +300,8 @@ impl App {
         self.pending_play = Some(song);
     }
 
-    fn dismiss_error(&mut self) {
-        self.ui.error_message = None;
-    }
-
+    #[allow(clippy::collapsible_match)]
     async fn handle_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
-        if self.ui.error_message.is_some() {
-            self.dismiss_error();
-        }
-
         // Universal keys — always work regardless of screen or focus
         if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Ok(true);
@@ -406,6 +399,10 @@ impl App {
                             "dark".into()
                         };
                         self.ui.invalidate_theme();
+                        self.ui.push_notification(
+                            self.ui.tr("notif_theme").replace("{}", &self.ui.theme_name),
+                            NotificationLevel::Info,
+                        );
                     }
                     1 => {
                         const PRESETS: &[&str] = &[
@@ -421,6 +418,7 @@ impl App {
                             .unwrap_or(0);
                         self.ui.accent_color = PRESETS[i].to_string();
                         self.ui.invalidate_theme();
+                        self.ui.push_notification(self.ui.tr("notif_accent"), NotificationLevel::Info);
                     }
                     4 => {
                         let dir = tokio::task::spawn_blocking(|| {
@@ -484,20 +482,27 @@ impl App {
             match key.code {
                 KeyCode::Char(' ') => match self.playback.state() {
                     PlayerState::Playing => {
-                        self.playback.pause().ok();
-                        self.ui.player_state = PlayerState::Paused;
+                        if self.playback.pause().is_ok() {
+                            self.ui.player_state = PlayerState::Paused;
+                            self.ui.push_notification(self.ui.tr("notif_paused"), NotificationLevel::Info);
+                        }
                     }
                     PlayerState::Paused => {
-                        self.playback.resume().ok();
-                        self.ui.player_state = PlayerState::Playing;
+                        if self.playback.resume().is_ok() {
+                            self.ui.player_state = PlayerState::Playing;
+                            self.ui.push_notification(self.ui.tr("notif_resumed"), NotificationLevel::Info);
+                        }
                     }
                     _ => {}
                 },
                 KeyCode::Char('s') => {
                     self.pending_play = None;
-                    self.playback.stop().ok();
+                    if let Err(e) = self.playback.stop() {
+                        tracing::warn!("Failed to stop playback: {}", e);
+                    }
                     self.ui.player_state = PlayerState::Stopped;
                     self.ui.progress = 0.0;
+                    self.ui.push_notification(self.ui.tr("notif_stopped"), NotificationLevel::Info);
                 }
                 KeyCode::Char('n') => {
                     if let Some(next) = self.playlist.next().cloned() {
@@ -513,11 +518,19 @@ impl App {
                     let vol = (self.playback.volume() + 0.05).min(1.0);
                     self.playback.set_volume(vol);
                     self.ui.volume = vol;
+                    self.ui.push_notification(
+                        self.ui.tr("notif_volume").replace("{:.0}", &format!("{:.0}", vol * 100.0)),
+                        NotificationLevel::Info,
+                    );
                 }
                 KeyCode::Char('-') | KeyCode::Char('_') => {
                     let vol = (self.playback.volume() - 0.05).max(0.0);
                     self.playback.set_volume(vol);
                     self.ui.volume = vol;
+                    self.ui.push_notification(
+                        self.ui.tr("notif_volume").replace("{:.0}", &format!("{:.0}", vol * 100.0)),
+                        NotificationLevel::Info,
+                    );
                 }
                 KeyCode::Char('t') => {
                     self.ui.active_screen = ActiveScreen::Settings;
@@ -608,12 +621,16 @@ impl App {
             }
             KeyCode::Char(' ') => match self.playback.state() {
                 PlayerState::Playing => {
-                    self.playback.pause().ok();
-                    self.ui.player_state = PlayerState::Paused;
+                    if self.playback.pause().is_ok() {
+                        self.ui.player_state = PlayerState::Paused;
+                        self.ui.push_notification(self.ui.tr("notif_paused"), NotificationLevel::Info);
+                    }
                 }
                 PlayerState::Paused => {
-                    self.playback.resume().ok();
-                    self.ui.player_state = PlayerState::Playing;
+                    if self.playback.resume().is_ok() {
+                        self.ui.player_state = PlayerState::Playing;
+                        self.ui.push_notification(self.ui.tr("notif_resumed"), NotificationLevel::Info);
+                    }
                 }
                 _ => {
                     self.schedule_play_selected();
@@ -621,9 +638,12 @@ impl App {
             },
             KeyCode::Char('s') => {
                 self.pending_play = None;
-                self.playback.stop().ok();
+                if let Err(e) = self.playback.stop() {
+                    tracing::warn!("Failed to stop playback: {}", e);
+                }
                 self.ui.player_state = PlayerState::Stopped;
                 self.ui.progress = 0.0;
+                self.ui.push_notification(self.ui.tr("notif_stopped"), NotificationLevel::Info);
             }
             KeyCode::Char('n') => {
                 if let Some(next) = self.playlist.next().cloned() {
@@ -639,11 +659,19 @@ impl App {
                 let vol = (self.playback.volume() + 0.05).min(1.0);
                 self.playback.set_volume(vol);
                 self.ui.volume = vol;
+                self.ui.push_notification(
+                    self.ui.tr("notif_volume").replace("{:.0}", &format!("{:.0}", vol * 100.0)),
+                    NotificationLevel::Info,
+                );
             }
             KeyCode::Char('-') | KeyCode::Char('_') => {
                 let vol = (self.playback.volume() - 0.05).max(0.0);
                 self.playback.set_volume(vol);
                 self.ui.volume = vol;
+                self.ui.push_notification(
+                    self.ui.tr("notif_volume").replace("{:.0}", &format!("{:.0}", vol * 100.0)),
+                    NotificationLevel::Info,
+                );
             }
             KeyCode::Char('v') => {
                 self.playback.toggle_mode();
@@ -653,10 +681,10 @@ impl App {
                     let idx = self.ui.selected_index;
                     if let Some(song) = self.ui.search_results.get(idx) {
                         if self.playlist.songs().iter().any(|s| s.id == song.id) {
-                            self.ui.status_message = Some(self.ui.tr("notif_already_in_queue").replace("{}", &song.title));
+                            self.ui.push_notification(self.ui.tr("notif_already_in_queue").replace("{}", &song.title), NotificationLevel::Warning);
                         } else {
                             self.playlist.add(song.clone());
-                            self.ui.status_message = Some(self.ui.tr("notif_added_to_queue").replace("{}", &song.title));
+                            self.ui.push_notification(self.ui.tr("notif_added_to_queue").replace("{}", &song.title), NotificationLevel::Success);
                         }
                     }
                 }
@@ -719,14 +747,22 @@ impl App {
     fn handle_event(&mut self, event: AppEvent) {
         match event {
             AppEvent::SearchResults(songs) => {
+                let count = songs.len();
                 self.ui.search_results = songs;
                 self.ui.is_searching = false;
                 self.ui.selected_index = 0;
                 self.ui.focus = Focus::SearchResults;
+                self.ui.push_notification(
+                    self.ui.tr("notif_search_count").replace("{}", &count.to_string()),
+                    NotificationLevel::Info,
+                );
             }
             AppEvent::SearchError(err) => {
                 self.ui.is_searching = false;
-                self.ui.error_message = Some(err);
+                self.ui.push_notification(
+                    self.ui.tr("err_search").replace("{}", &err),
+                    NotificationLevel::Error,
+                );
             }
             AppEvent::PlaybackStarted(song) => {
                 self.ui.current_song = Some(song);
@@ -752,20 +788,29 @@ impl App {
             }
             AppEvent::PlaybackError(err) => {
                 self.ui.player_state = PlayerState::Stopped;
-                self.ui.error_message = Some(err);
+                self.ui.push_notification(
+                    self.ui.tr("err_playback").replace("{}", &err),
+                    NotificationLevel::Error,
+                );
             }
             AppEvent::VolumeChanged(vol) => {
                 self.ui.volume = vol;
+                self.ui.push_notification(
+                    self.ui.tr("notif_volume").replace("{:.0}", &format!("{:.0}", vol * 100.0)),
+                    NotificationLevel::Info,
+                );
             }
             AppEvent::DownloadComplete { song_title, file_path: _ } => {
-                self.ui.notification = Some(Notification {
-                    message: self.ui.tr("notif_downloaded").replace("{}", &song_title),
-                    success: true,
-                    timestamp: std::time::Instant::now(),
-                });
+                self.ui.push_notification(
+                    self.ui.tr("notif_downloaded").replace("{}", &song_title),
+                    NotificationLevel::Success,
+                );
             }
             AppEvent::DownloadError(err) => {
-                self.ui.error_message = Some(self.ui.tr("err_download_failed").replace("{}", &err));
+                self.ui.push_notification(
+                    self.ui.tr("err_download_failed").replace("{}", &err),
+                    NotificationLevel::Error,
+                );
             }
             AppEvent::AudioReady { song, data } => {
                 match self.playback.play_bytes(data, song) {
@@ -773,10 +818,14 @@ impl App {
                         self.ui.player_state = PlayerState::Playing;
                         self.ui.progress = 0.0;
                         self.ui.duration = self.playback.current_duration();
+                        self.ui.push_notification(self.ui.tr("notif_playing"), NotificationLevel::Info);
                     }
                     Err(e) => {
                         self.ui.player_state = PlayerState::Stopped;
-                        self.ui.error_message = Some(self.ui.tr("err_playback").replace("{}", &e.to_string()));
+                        self.ui.push_notification(
+                            self.ui.tr("err_playback").replace("{}", &e.to_string()),
+                            NotificationLevel::Error,
+                        );
                         self.ui.current_song = None;
                     }
                 }
@@ -784,7 +833,10 @@ impl App {
             }
             AppEvent::AudioDownloadError(err) => {
                 self.ui.player_state = PlayerState::Stopped;
-                self.ui.error_message = Some(self.ui.tr("err_playback").replace("{}", &err));
+                self.ui.push_notification(
+                    self.ui.tr("err_playback").replace("{}", &err),
+                    NotificationLevel::Error,
+                );
                 self.ui.loading_status = None;
                 self.ui.current_song = None;
             }
