@@ -5,9 +5,9 @@ impl App {
         match event {
             AppEvent::SearchResults(songs) => {
                 let count = songs.len();
-                self.ui.search_results = songs;
-                self.ui.is_searching = false;
-                self.ui.selected_index = 0;
+                self.ui.search.search_results = songs;
+                self.ui.search.is_searching = false;
+                self.ui.search.selected_index = 0;
                 self.ui.focus = Focus::SearchResults;
                 self.ui.push_notification(
                     self.ui.tr("notif_search_count").replace("{}", &count.to_string()),
@@ -15,7 +15,7 @@ impl App {
                 );
             }
             AppEvent::SearchError(err) => {
-                self.ui.is_searching = false;
+                self.ui.search.is_searching = false;
                 self.ui.push_notification(
                     self.ui.tr("err_search").replace("{}", &err),
                     NotificationLevel::Error,
@@ -24,7 +24,7 @@ impl App {
             AppEvent::PlaybackStarted(song) => {
                 self.ui.current_song = Some(song);
                 self.ui.player_state = PlayerState::Loading;
-                self.ui.is_searching = false;
+                self.ui.search.is_searching = false;
             }
             AppEvent::PlaybackFinished => {
                 self.ui.player_state = PlayerState::Stopped;

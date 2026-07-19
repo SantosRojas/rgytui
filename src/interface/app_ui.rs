@@ -36,7 +36,7 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode, theme: 
 
     match state.active_screen {
         ActiveScreen::Help => {
-            help_screen::render(frame, main_area, &state.translations, theme);
+            help_screen::render(frame, main_area, &state.config.translations, theme);
         }
         ActiveScreen::Settings => {
             settings_screen::render(frame, main_area, state, theme);
@@ -54,11 +54,11 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode, theme: 
         .audio_mode(audio_mode)
         .volume(state.volume)
         .focus(state.focus)
-        .translations(state.translations.clone())
+        .translations(state.config.translations.clone())
         .theme(*theme);
     frame.render_widget(status_bar, status_area);
 
-    if state.show_download_popup {
+    if state.download.show_download_popup {
         render_download_popup(frame, frame.area(), state, theme);
     }
 
@@ -75,7 +75,7 @@ fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState, theme: 
     ];
 
     let items: Vec<ListItem> = formats.iter().enumerate().map(|(i, (name, desc))| {
-        let selected = i == state.download_format;
+        let selected = i == state.download.download_format;
         let content = Line::from(vec![
             Span::styled(
                 format!(" {:4} ", name),

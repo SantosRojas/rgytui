@@ -68,7 +68,7 @@ impl App {
     }
 
     pub(crate) async fn handle_download_pending(&mut self) -> bool {
-        if let Some((song, dir, fmt)) = self.ui.download_pending.take() {
+        if let Some((song, dir, fmt)) = self.ui.download.download_pending.take() {
             let song_title = song.title.clone();
             let song_title_clone = song_title.clone();
             let tx = self.event_tx.clone();

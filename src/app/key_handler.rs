@@ -17,7 +17,7 @@ impl App {
         }
 
         // Download format popup handler (priority check before universal keys intercept)
-        if self.ui.show_download_popup {
+        if self.ui.download.show_download_popup {
             return self.handle_download_popup_key(key);
         }
 
@@ -38,8 +38,8 @@ impl App {
                         self.ui.focus = Focus::SearchInput;
                     }
                     ActiveScreen::Search => {
-                        if self.ui.focus == Focus::SearchInput && !self.ui.search_query.is_empty() {
-                            self.ui.search_query.clear();
+                        if self.ui.focus == Focus::SearchInput && !self.ui.search.search_query.is_empty() {
+                            self.ui.search.search_query.clear();
                         } else {
                             self.ui.focus = match self.ui.focus {
                                 Focus::SearchInput | Focus::SearchResults => Focus::SearchInput,
@@ -73,15 +73,15 @@ impl App {
     fn handle_download_popup_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
         match key.code {
             KeyCode::Up => {
-                self.ui.download_format = self.ui.download_format.saturating_sub(1);
+                self.ui.download.download_format = self.ui.download.download_format.saturating_sub(1);
             }
             KeyCode::Down => {
-                self.ui.download_format = (self.ui.download_format + 1).min(4);
+                self.ui.download.download_format = (self.ui.download.download_format + 1).min(4);
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
-                if let Some(song) = self.ui.download_song.take() {
-                    let dir = self.ui.download_path.clone();
-                    let fmt = match self.ui.download_format {
+                if let Some(song) = self.ui.download.download_song.take() {
+                    let dir = self.ui.config.download_path.clone();
+                    let fmt = match self.ui.download.download_format {
                         0 => "m4a",
                         1 => "mp3",
                         2 => "opus",
@@ -89,14 +89,14 @@ impl App {
                         _ => "wav",
                     }
                     .to_string();
-                    self.ui.show_download_popup = false;
-                    self.ui.download_pending = Some((song, dir, fmt));
+                    self.ui.download.show_download_popup = false;
+                    self.ui.download.download_pending = Some((song, dir, fmt));
                 } else {
-                    self.ui.show_download_popup = false;
+                    self.ui.download.show_download_popup = false;
                 }
             }
             KeyCode::Esc => {
-                self.ui.show_download_popup = false;
+                self.ui.download.show_download_popup = false;
             }
             _ => {}
         }
@@ -121,21 +121,21 @@ impl App {
                 self.ui.focus = Focus::SearchInput;
             }
             KeyCode::Up => {
-                self.ui.settings_focus = self.ui.settings_focus.saturating_sub(1);
+                self.ui.settings.settings_focus = self.ui.settings.settings_focus.saturating_sub(1);
             }
             KeyCode::Down => {
-                self.ui.settings_focus = (self.ui.settings_focus + 1).min(5);
+                self.ui.settings.settings_focus = (self.ui.settings.settings_focus + 1).min(5);
             }
-            KeyCode::Enter | KeyCode::Char(' ') => match self.ui.settings_focus {
+            KeyCode::Enter | KeyCode::Char(' ') => match self.ui.settings.settings_focus {
                 0 => {
-                    self.ui.theme_name = if self.ui.theme_name == "dark" {
+                    self.ui.config.theme_name = if self.ui.config.theme_name == "dark" {
                         "light".into()
                     } else {
                         "dark".into()
                     };
                     self.ui.invalidate_theme();
                     self.ui.push_notification(
-                        self.ui.tr("notif_theme").replace("{}", &self.ui.theme_name),
+                        self.ui.tr("notif_theme").replace("{}", &self.ui.config.theme_name),
                         NotificationLevel::Info,
                     );
                 }
@@ -148,10 +148,10 @@ impl App {
                     ];
                     let i = PRESETS
                         .iter()
-                        .position(|&c| c == self.ui.accent_color)
+                        .position(|&c| c == self.ui.config.accent_color)
                         .map(|i| (i + 1) % PRESETS.len())
                         .unwrap_or(0);
-                    self.ui.accent_color = PRESETS[i].to_string();
+                    self.ui.config.accent_color = PRESETS[i].to_string();
                     self.ui.invalidate_theme();
                     self.ui.push_notification(
                         self.ui.tr("notif_accent"),
@@ -167,51 +167,52 @@ impl App {
                     .await
                     .unwrap_or(None);
                     if let Some(p) = dir {
-                        self.ui.download_path = p.to_string_lossy().to_string();
+                        self.ui.config.download_path = p.to_string_lossy().to_string();
                     }
                 }
                 5 => {
-                    self.ui.language = if self.ui.language == "es" {
+                    self.ui.config.language = if self.ui.config.language == "es" {
                         "en".into()
                     } else {
                         "es".into()
                     };
-                    self.ui.translations = Translations::load(&self.ui.language);
+                    self.ui.config.translations = Translations::load(&self.ui.config.language);
                 }
                 _ => {}
             },
-            KeyCode::Char('=') | KeyCode::Char('+') => match self.ui.settings_focus {
+            KeyCode::Char('=') | KeyCode::Char('+') => match self.ui.settings.settings_focus {
                 2 => {
                     self.ui.volume = (self.ui.volume + 0.05).min(1.0);
                     self.playback.set_volume(self.ui.volume);
                 }
                 3 => {
-                    self.ui.default_search_limit =
-                        (self.ui.default_search_limit + 5).min(50);
+                    self.ui.config.default_search_limit =
+                        (self.ui.config.default_search_limit + 5).min(50);
                 }
                 _ => {}
             },
-            KeyCode::Char('-') | KeyCode::Char('_') => match self.ui.settings_focus {
+            KeyCode::Char('-') | KeyCode::Char('_') => match self.ui.settings.settings_focus {
                 2 => {
                     self.ui.volume = (self.ui.volume - 0.05).max(0.0);
                     self.playback.set_volume(self.ui.volume);
                 }
                 3 => {
-                    self.ui.default_search_limit = self
+                    self.ui.config.default_search_limit = self
                         .ui
+                        .config
                         .default_search_limit
                         .saturating_sub(5)
                         .max(1);
                 }
                 _ => {}
             },
-            KeyCode::Char(c) if self.ui.settings_focus == 4 => {
-                if self.ui.download_path.len() < 300 {
-                    self.ui.download_path.push(c);
+            KeyCode::Char(c) if self.ui.settings.settings_focus == 4 => {
+                if self.ui.config.download_path.len() < 300 {
+                    self.ui.config.download_path.push(c);
                 }
             }
-            KeyCode::Backspace if self.ui.settings_focus == 4 => {
-                self.ui.download_path.pop();
+            KeyCode::Backspace if self.ui.settings.settings_focus == 4 => {
+                self.ui.config.download_path.pop();
             }
             _ => {}
         }
@@ -305,7 +306,7 @@ impl App {
             }
             KeyCode::Up => match self.ui.focus {
                 Focus::SearchResults => {
-                    self.ui.selected_index = self.ui.selected_index.saturating_sub(1);
+                    self.ui.search.selected_index = self.ui.search.selected_index.saturating_sub(1);
                 }
                 Focus::QueueList => {
                     if !self.ui.queue_songs.is_empty() {
@@ -316,8 +317,8 @@ impl App {
             },
             KeyCode::Down => match self.ui.focus {
                 Focus::SearchResults => {
-                    self.ui.selected_index = (self.ui.selected_index + 1)
-                        .min(self.ui.search_results.len().saturating_sub(1));
+                    self.ui.search.selected_index = (self.ui.search.selected_index + 1)
+                        .min(self.ui.search.search_results.len().saturating_sub(1));
                 }
                 Focus::QueueList => {
                     if !self.ui.queue_songs.is_empty() {
@@ -329,7 +330,7 @@ impl App {
             },
             KeyCode::Enter => match self.ui.focus {
                 Focus::SearchInput => {
-                    if !self.ui.search_query.is_empty() {
+                    if !self.ui.search.search_query.is_empty() {
                         // Debounce: ignore rapid consecutive searches
                         if let Some(last) = self.last_search
                             && last.elapsed() < Duration::from_millis(300)
@@ -337,10 +338,10 @@ impl App {
                             // too soon — skip
                         } else {
                             self.last_search = Some(Instant::now());
-                            self.ui.is_searching = true;
-                            self.ui.search_results.clear();
-                            let query = self.ui.search_query.clone();
-                            self.spawn_search(query, self.ui.default_search_limit);
+                            self.ui.search.is_searching = true;
+                            self.ui.search.search_results.clear();
+                            let query = self.ui.search.search_query.clone();
+                            self.spawn_search(query, self.ui.config.default_search_limit);
                         }
                     }
                 }
@@ -359,17 +360,17 @@ impl App {
             },
             KeyCode::Backspace => {
                 if self.ui.focus == Focus::SearchInput {
-                    self.ui.search_query.pop();
+                    self.ui.search.search_query.pop();
                 }
             }
             KeyCode::Char(c) if self.ui.focus == Focus::SearchInput => {
-                if self.ui.search_query.len() < 200 {
-                    self.ui.search_query.push(c);
+                if self.ui.search.search_query.len() < 200 {
+                    self.ui.search.search_query.push(c);
                 }
             }
             KeyCode::Char('/') => {
                 self.ui.focus = Focus::SearchInput;
-                self.ui.search_query.clear();
+                self.ui.search.search_query.clear();
                 self.ui.active_screen = ActiveScreen::Search;
             }
             KeyCode::Char(' ') => match self.playback.state() {
@@ -446,9 +447,9 @@ impl App {
                 }
             }
             KeyCode::Char('a') => {
-                if self.ui.focus == Focus::SearchResults && !self.ui.search_results.is_empty() {
-                    let idx = self.ui.selected_index;
-                    if let Some(song) = self.ui.search_results.get(idx) {
+                if self.ui.focus == Focus::SearchResults && !self.ui.search.search_results.is_empty() {
+                    let idx = self.ui.search.selected_index;
+                    if let Some(song) = self.ui.search.search_results.get(idx) {
                         if self.playlist.songs().iter().any(|s| s.id == song.id) {
                             self.ui.push_notification(
                                 self.ui.tr("notif_already_in_queue")
@@ -475,18 +476,18 @@ impl App {
             KeyCode::Char('d') => {
                 match self.ui.focus {
                     Focus::SearchResults => {
-                        self.ui.download_song =
-                            self.ui.search_results.get(self.ui.selected_index).cloned();
+                        self.ui.download.download_song =
+                            self.ui.search.search_results.get(self.ui.search.selected_index).cloned();
                     }
                     Focus::QueueList => {
-                        self.ui.download_song =
+                        self.ui.download.download_song =
                             self.ui.queue_songs.get(self.ui.queue_selected).cloned();
                     }
                     _ => {}
                 }
-                if self.ui.download_song.is_some() {
-                    self.ui.show_download_popup = true;
-                    self.ui.download_format = 0;
+                if self.ui.download.download_song.is_some() {
+                    self.ui.download.show_download_popup = true;
+                    self.ui.download.download_format = 0;
                 }
             }
             KeyCode::Char('C') | KeyCode::Char('c') => {

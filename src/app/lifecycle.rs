@@ -24,11 +24,11 @@ impl App {
             tracing::warn!("Failed to stop playback on exit: {}", e);
         }
         self.settings.volume = self.playback.volume();
-        self.settings.theme = self.ui.theme_name.clone();
-        self.settings.accent_color = self.ui.accent_color.clone();
-        self.settings.default_search_limit = self.ui.default_search_limit;
-        self.settings.download_path = self.ui.download_path.clone();
-        self.settings.language = self.ui.language.clone();
+        self.settings.theme = self.ui.config.theme_name.clone();
+        self.settings.accent_color = self.ui.config.accent_color.clone();
+        self.settings.default_search_limit = self.ui.config.default_search_limit;
+        self.settings.download_path = self.ui.config.download_path.clone();
+        self.settings.language = self.ui.config.language.clone();
         if let Err(e) = self.config.save_settings(&self.settings).await {
             tracing::warn!("Failed to save settings: {}", e);
         }

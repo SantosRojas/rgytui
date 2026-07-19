@@ -17,7 +17,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let search_area = chunks[0];
     let results_area = chunks[1];
 
-    let title = if state.is_searching {
+    let title = if state.search.is_searching {
         format!(" {} {} ", state.spinner_char(), state.tr("search_searching"))
     } else {
         format!(" 🔍 {} ", state.tr("search_title"))
@@ -36,13 +36,14 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
                     Style::default().fg(theme.border_inactive)
                 }),
         )
-        .value(&state.search_query)
+        .value(&state.search.search_query)
         .placeholder(&placeholder_text);
 
     frame.render_widget(input_box, search_area);
 
-    let count_text = format!(" ♫ {} ", state.tr("search_results").replace("{}", &state.search_results.len().to_string()));
+    let count_text = format!(" ♫ {} ", state.tr("search_results").replace("{}", &state.search.search_results.len().to_string()));
     let items: Vec<ListItem> = state
+        .search
         .search_results
         .iter()
         .enumerate()
@@ -51,24 +52,24 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
             let content = vec![Line::from(vec![
                 Span::styled(
                     format!(" {:2}. ", i + 1),
-                    Style::default().fg(if i == state.selected_index { theme.highlight_fg } else { theme.text_muted }),
+                    Style::default().fg(if i == state.search.selected_index { theme.highlight_fg } else { theme.text_muted }),
                 ),
                 Span::styled(
                     &song.title,
                     Style::default()
-                        .fg(if i == state.selected_index { theme.highlight_fg } else { theme.text })
+                        .fg(if i == state.search.selected_index { theme.highlight_fg } else { theme.text })
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(" — ", Style::default().fg(if i == state.selected_index { theme.highlight_fg } else { theme.separator })),
-                Span::styled(&song.channel, Style::default().fg(if i == state.selected_index { theme.highlight_fg } else { theme.text_secondary })),
+                Span::styled(" — ", Style::default().fg(if i == state.search.selected_index { theme.highlight_fg } else { theme.separator })),
+                Span::styled(&song.channel, Style::default().fg(if i == state.search.selected_index { theme.highlight_fg } else { theme.text_secondary })),
                 Span::raw(" "),
                 Span::styled(
                     format!("[{}]", duration),
-                    Style::default().fg(if i == state.selected_index { theme.highlight_fg } else { theme.warning }),
+                    Style::default().fg(if i == state.search.selected_index { theme.highlight_fg } else { theme.warning }),
                 ),
             ])];
 
-            ListItem::new(content).style(if i == state.selected_index {
+            ListItem::new(content).style(if i == state.search.selected_index {
                 Style::default().bg(theme.highlight_bg).fg(theme.highlight_fg)
             } else {
                 Style::default()

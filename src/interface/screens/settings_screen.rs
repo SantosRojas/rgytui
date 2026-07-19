@@ -34,11 +34,11 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let items = vec![
         ListItem::new(Line::from(vec![
             Span::styled(state.tr("settings_theme"), Style::default().fg(theme.text)),
-            Span::styled(state.theme_name.clone(), Style::default().fg(theme.accent)),
+            Span::styled(state.config.theme_name.clone(), Style::default().fg(theme.accent)),
         ])),
         ListItem::new(Line::from(vec![
             Span::styled(state.tr("settings_accent"), Style::default().fg(theme.text)),
-            Span::styled(state.accent_color.clone(), Style::default().fg(theme.text)),
+            Span::styled(state.config.accent_color.clone(), Style::default().fg(theme.text)),
         ])),
         ListItem::new(Line::from(vec![
             Span::styled(state.tr("settings_volume"), Style::default().fg(theme.text)),
@@ -46,22 +46,22 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         ])),
         ListItem::new(Line::from(vec![
             Span::styled(state.tr("settings_search_limit"), Style::default().fg(theme.text)),
-            Span::styled(format!("{}", state.default_search_limit), Style::default().fg(theme.accent)),
+            Span::styled(format!("{}", state.config.default_search_limit), Style::default().fg(theme.accent)),
         ])),
         ListItem::new(Line::from(vec![
             Span::styled(state.tr("settings_download_path"), Style::default().fg(theme.text)),
             Span::styled(
-                if state.download_path.len() > 40 {
-                    format!("...{}", &state.download_path[state.download_path.len().saturating_sub(37)..])
+                if state.config.download_path.len() > 40 {
+                    format!("...{}", &state.config.download_path[state.config.download_path.len().saturating_sub(37)..])
                 } else {
-                    state.download_path.clone()
+                    state.config.download_path.clone()
                 },
                 Style::default().fg(theme.accent),
             ),
         ])),
         ListItem::new(Line::from(vec![
             Span::styled(state.tr("settings_language"), Style::default().fg(theme.text)),
-            Span::styled(state.language.clone(), Style::default().fg(theme.accent)),
+            Span::styled(state.config.language.clone(), Style::default().fg(theme.accent)),
         ])),
     ];
 
@@ -77,7 +77,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         .highlight_symbol("▸ ");
 
     let mut list_state = ListState::default();
-    list_state.select(Some(state.settings_focus));
+    list_state.select(Some(state.settings.settings_focus));
     frame.render_stateful_widget(list, chunks[1], &mut list_state);
 
     let hints = Line::from(Span::styled(

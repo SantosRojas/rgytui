@@ -39,11 +39,11 @@ impl App {
     }
 
     pub(crate) fn schedule_play_selected(&mut self) {
-        if self.ui.search_results.is_empty() {
+        if self.ui.search.search_results.is_empty() {
             return;
         }
-        let idx = self.ui.selected_index;
-        let song = match self.ui.search_results.get(idx) {
+        let idx = self.ui.search.selected_index;
+        let song = match self.ui.search.search_results.get(idx) {
             Some(s) => s.clone(),
             None => return,
         };

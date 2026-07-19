@@ -14,7 +14,7 @@ pub(crate) use crate::domain::player_state::PlayerState;
 pub(crate) use crate::infrastructure::config::store::AppSettings;
 use crate::interface::app_ui;
 use crate::interface::i18n::Translations;
-pub(crate) use crate::interface::state::{ActiveScreen, Focus, NotificationLevel, UiState};
+pub(crate) use crate::interface::state::{ActiveScreen, ConfigState, Focus, NotificationLevel, UiState};
 pub(crate) use crate::shared::event::AppEvent;
 
 pub mod lifecycle;
@@ -81,12 +81,14 @@ impl App {
         let translations = Translations::load(&language);
         let ui = UiState {
             volume: settings.volume.clamp(0.0, 1.0),
-            theme_name: settings.theme.clone(),
-            accent_color: settings.accent_color.clone(),
-            default_search_limit: settings.default_search_limit,
-            download_path: settings.download_path.clone(),
-            language: language.clone(),
-            translations,
+            config: ConfigState::new(
+                settings.theme.clone(),
+                settings.accent_color.clone(),
+                language.clone(),
+                translations,
+                settings.default_search_limit,
+                settings.download_path.clone(),
+            ),
             ..UiState::default()
         };
 
@@ -323,7 +325,7 @@ mod tests {
 
         // Now simulate re-selecting the same song: call schedule_play_selected
         // with the song in search results
-        app.ui.search_results.push(song.clone());
+        app.ui.search.search_results.push(song.clone());
         app.schedule_play_selected();
 
         // After retry, state should be Loading and pending_play should be Some

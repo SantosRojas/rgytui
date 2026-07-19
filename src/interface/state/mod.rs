@@ -1,11 +1,17 @@
 use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
 use crate::shared::spectrum::SpectrumFrame;
-use crate::interface::i18n::Translations;
-use crate::interface::theme::Theme;
 
+pub mod config;
+pub mod download;
 pub mod notification;
+pub mod search;
+pub mod settings;
+pub use config::*;
+pub use download::*;
 pub use notification::*;
+pub use search::*;
+pub use settings::*;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ActiveScreen {
@@ -26,39 +32,27 @@ pub enum Focus {
 pub struct UiState {
     pub active_screen: ActiveScreen,
     pub focus: Focus,
-    pub search_query: String,
-    pub search_results: Vec<Song>,
-    pub is_searching: bool,
+    pub search: SearchState,
     pub player_state: PlayerState,
     pub current_song: Option<Song>,
     pub progress: f64,
     pub duration: f64,
     pub volume: f32,
-    pub selected_index: usize,
     pub queue_selected: usize,
     pub loading_status: Option<String>,
     pub queue_songs: Vec<Song>,
     pub queue_current: usize,
     pub spectrum: SpectrumFrame,
-    pub theme_name: String,
-    pub accent_color: String,
-    pub default_search_limit: usize,
-    pub settings_focus: usize,
-    pub download_path: String,
-    pub show_download_popup: bool,
-    pub download_format: usize,
-    pub download_song: Option<Song>,
+    pub config: ConfigState,
+    pub settings: SettingsState,
+    pub download: DownloadPopupState,
     pub spinner_frame: usize,
-    pub download_pending: Option<(Song, String, String)>,
     pub notifications: NotificationState,
-    pub language: String,
-    pub translations: Translations,
-    pub cached_theme: Option<Theme>,
 }
 
 impl UiState {
     pub fn tr(&self, key: &str) -> String {
-        self.translations.t(key)
+        self.config.tr(key)
     }
 
     pub fn progress_percent(&self) -> f64 {
@@ -98,17 +92,12 @@ impl UiState {
         self.notifications.active()
     }
 
-    pub fn get_or_create_theme(&mut self) -> Theme {
-        if let Some(theme) = self.cached_theme {
-            return theme;
-        }
-        let theme = Theme::from_settings(&self.theme_name, &self.accent_color);
-        self.cached_theme = Some(theme);
-        theme
+    pub fn get_or_create_theme(&mut self) -> crate::interface::theme::Theme {
+        self.config.get_or_create_theme()
     }
 
     pub fn invalidate_theme(&mut self) {
-        self.cached_theme = None;
+        self.config.invalidate_theme();
     }
 }
 
@@ -117,34 +106,22 @@ impl Default for UiState {
         Self {
             active_screen: ActiveScreen::Search,
             focus: Focus::SearchInput,
-            search_query: String::new(),
-            search_results: Vec::new(),
-            is_searching: false,
+            search: SearchState::default(),
             player_state: PlayerState::Idle,
             current_song: None,
             progress: 0.0,
             duration: 0.0,
             volume: 0.8,
-            selected_index: 0,
             queue_selected: 0,
             loading_status: None,
             queue_songs: Vec::new(),
             queue_current: 0,
             spectrum: SpectrumFrame::default(),
-            theme_name: "dark".into(),
-            accent_color: "#00ffff".into(),
-            default_search_limit: 10,
-            settings_focus: 0,
-            download_path: String::new(),
-            show_download_popup: false,
-            download_format: 0,
-            download_song: None,
-            download_pending: None,
+            config: ConfigState::default(),
+            settings: SettingsState::default(),
+            download: DownloadPopupState::default(),
             notifications: NotificationState::default(),
             spinner_frame: 0,
-            language: "es".into(),
-            translations: Translations::load("es"),
-            cached_theme: None,
         }
     }
 }
