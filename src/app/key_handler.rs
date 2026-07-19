@@ -310,7 +310,7 @@ impl App {
                 }
                 Focus::QueueList => {
                     if !self.ui.queue_songs.is_empty() {
-                        self.ui.queue_selected = self.ui.queue_selected.saturating_sub(1);
+                        self.ui.queue.queue_selected = self.ui.queue.queue_selected.saturating_sub(1);
                     }
                 }
                 _ => {}
@@ -322,7 +322,7 @@ impl App {
                 }
                 Focus::QueueList => {
                     if !self.ui.queue_songs.is_empty() {
-                        self.ui.queue_selected = (self.ui.queue_selected + 1)
+                        self.ui.queue.queue_selected = (self.ui.queue.queue_selected + 1)
                             .min(self.ui.queue_songs.len().saturating_sub(1));
                     }
                 }
@@ -349,7 +349,7 @@ impl App {
                     self.schedule_play_selected();
                 }
                 Focus::QueueList => {
-                    let idx = self.ui.queue_selected;
+                    let idx = self.ui.queue.queue_selected;
                     if idx < self.ui.queue_songs.len() {
                         self.playlist.set_current_index(idx);
                         if let Some(song) = self.playlist.current_song_cloned() {
@@ -469,7 +469,7 @@ impl App {
             }
             KeyCode::Delete => {
                 if self.ui.focus == Focus::QueueList && !self.ui.queue_songs.is_empty() {
-                    let idx = self.ui.queue_selected;
+                    let idx = self.ui.queue.queue_selected;
                     self.playlist.remove(idx);
                 }
             }
@@ -481,7 +481,7 @@ impl App {
                     }
                     Focus::QueueList => {
                         self.ui.download.download_song =
-                            self.ui.queue_songs.get(self.ui.queue_selected).cloned();
+                            self.ui.queue_songs.get(self.ui.queue.queue_selected).cloned();
                     }
                     _ => {}
                 }

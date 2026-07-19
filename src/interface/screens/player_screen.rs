@@ -34,7 +34,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         _                    => "⏹",
     };
 
-    let status = if state.loading_status.is_some() {
+    let status = if state.player.loading_status.is_some() {
         state.tr("player_loading")
     } else {
         match state.player_state {
@@ -61,7 +61,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     .alignment(Alignment::Center);
     frame.render_widget(header, header_area);
 
-    if let Some(ref loading) = state.loading_status {
+    if let Some(ref loading) = state.player.loading_status {
         let spinner = state.spinner_char();
         let loading_text = Paragraph::new(Line::from(vec![
             Span::styled(format!(" {} ", spinner), Style::default().fg(theme.warning)),
@@ -78,7 +78,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         )
         .alignment(Alignment::Center);
         frame.render_widget(loading_text, info_area);
-    } else if let Some(ref song) = state.current_song {
+    } else if let Some(ref song) = state.player.current_song {
         let info = Paragraph::new(vec![
             Line::from(Span::styled(
                 &song.title,
@@ -119,16 +119,16 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         frame.render_widget(no_song, info_area);
     }
 
-    if state.player_state == PlayerState::Loading || state.loading_status.is_some() {
-        let loading = LoadingWidget::new(state.spinner_frame, theme.accent)
-            .message(state.loading_status.clone().unwrap_or_else(|| state.tr("player_loading")));
+    if state.player_state == PlayerState::Loading || state.player.loading_status.is_some() {
+        let loading = LoadingWidget::new(state.player.spinner_frame, theme.accent)
+            .message(state.player.loading_status.clone().unwrap_or_else(|| state.tr("player_loading")));
         frame.render_widget(loading, spectrum_area);
     } else {
         let spectrum = SpectrumWidget::new(state.spectrum.bands, state.spectrum.peaks, theme.accent).no_block();
         frame.render_widget(spectrum, spectrum_area);
     }
 
-    if state.loading_status.is_none() && state.current_song.is_some() {
+    if state.player.loading_status.is_none() && state.player.current_song.is_some() {
         let progress_bar = ProgressBar::new()
             .progress(state.progress_percent() as f32)
             .position(state.progress)

@@ -210,14 +210,14 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
     };
 
     let is_loading = state.player_state == crate::domain::player_state::PlayerState::Loading
-        || state.loading_status.is_some();
+        || state.player.loading_status.is_some();
 
     if is_loading {
         // Show modern loading animation instead of song info + spectrum
-        let loading = LoadingWidget::new(state.spinner_frame, theme.accent)
-            .message(state.loading_status.clone().unwrap_or_else(|| state.tr("player_loading")));
+        let loading = LoadingWidget::new(state.player.spinner_frame, theme.accent)
+            .message(state.player.loading_status.clone().unwrap_or_else(|| state.tr("player_loading")));
         frame.render_widget(loading, inner_area);
-    } else if let Some(ref song) = state.current_song {
+    } else if let Some(ref song) = state.player.current_song {
         let status_icon = match state.player_state {
             crate::domain::player_state::PlayerState::Playing => "▶",
             crate::domain::player_state::PlayerState::Paused  => "⏸",
@@ -317,7 +317,7 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
                 format!("  {:2}.", i + 1)
             };
 
-            let prefix_color = if i == state.queue_selected {
+            let prefix_color = if i == state.queue.queue_selected {
                 theme.highlight_fg
             } else if i == state.queue_current {
                 theme.accent
@@ -332,7 +332,7 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
                 Span::styled(" ", Style::default()),
                 Span::styled(
                     &song.title,
-                    Style::default().fg(if i == state.queue_selected {
+                    Style::default().fg(if i == state.queue.queue_selected {
                         theme.highlight_fg
                     } else if i == state.queue_current {
                         theme.accent
@@ -341,7 +341,7 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
                     }),
                 ),
             ])];
-            ListItem::new(content).style(if i == state.queue_selected {
+            ListItem::new(content).style(if i == state.queue.queue_selected {
                 Style::default().bg(theme.highlight_bg)
             } else {
                 Style::default()

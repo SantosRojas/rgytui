@@ -262,11 +262,11 @@ mod tests {
             thumbnail: None,
             webpage_url: "http://example.com".into(),
         };
-        app.ui.current_song = Some(song);
+        app.ui.player.current_song = Some(song);
 
         // Send PlaybackError
         app.handle_event(AppEvent::PlaybackError("Something went wrong".into()));
-        assert!(app.ui.current_song.is_none(), "current_song should be cleared after error");
+        assert!(app.ui.player.current_song.is_none(), "current_song should be cleared after error");
         assert_eq!(app.ui.player_state, PlayerState::Stopped);
     }
 
@@ -287,10 +287,10 @@ mod tests {
             thumbnail: None,
             webpage_url: "http://example.com".into(),
         };
-        app.ui.current_song = Some(song);
+        app.ui.player.current_song = Some(song);
 
         app.handle_event(AppEvent::AudioDownloadError("Download failed".into()));
-        assert!(app.ui.current_song.is_none(), "current_song should be cleared after download error");
+        assert!(app.ui.player.current_song.is_none(), "current_song should be cleared after download error");
         assert_eq!(app.ui.player_state, PlayerState::Stopped);
     }
 
@@ -320,7 +320,7 @@ mod tests {
 
         // Simulate an error
         app.handle_event(AppEvent::PlaybackError("Failed".into()));
-        assert!(app.ui.current_song.is_none());
+        assert!(app.ui.player.current_song.is_none());
         assert_eq!(app.ui.player_state, PlayerState::Stopped);
 
         // Now simulate re-selecting the same song: call schedule_play_selected

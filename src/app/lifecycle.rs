@@ -14,7 +14,7 @@ impl App {
     }
 
     pub(crate) fn queue_play(&mut self, song: Song) {
-        self.ui.current_song = Some(song.clone());
+        self.ui.player.current_song = Some(song.clone());
         self.ui.player_state = PlayerState::Loading;
         self.pending_play = Some(song);
     }

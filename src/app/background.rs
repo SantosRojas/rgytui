@@ -19,7 +19,7 @@ impl App {
     pub(crate) async fn handle_pending_play(&mut self) -> bool {
         if let Some(song) = self.pending_play.take() {
             let song_name = song.title.clone();
-            self.ui.loading_status =
+            self.ui.player.loading_status =
                 Some(self.ui.tr("downloading").replace("{}", &song_name));
 
             match self.playback.mode() {
@@ -30,7 +30,7 @@ impl App {
                             self.ui.player_state = PlayerState::Playing;
                             self.ui.progress = 0.0;
                             self.ui.duration = self.playback.current_duration();
-                            self.ui.loading_status = None;
+                            self.ui.player.loading_status = None;
                         }
                         Err(e) => {
                             self.ui.player_state = PlayerState::Stopped;
@@ -38,8 +38,8 @@ impl App {
                                 self.ui.tr("err_playback").replace("{}", &e.to_string()),
                                 NotificationLevel::Error,
                             );
-                            self.ui.loading_status = None;
-                            self.ui.current_song = None;
+                            self.ui.player.loading_status = None;
+                            self.ui.player.current_song = None;
                         }
                     }
                 }

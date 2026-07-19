@@ -22,7 +22,7 @@ impl App {
                 );
             }
             AppEvent::PlaybackStarted(song) => {
-                self.ui.current_song = Some(song);
+                self.ui.player.current_song = Some(song);
                 self.ui.player_state = PlayerState::Loading;
                 self.ui.search.is_searching = false;
             }
@@ -48,7 +48,7 @@ impl App {
                     self.ui.tr("err_playback").replace("{}", &err),
                     NotificationLevel::Error,
                 );
-                self.ui.current_song = None;
+                self.ui.player.current_song = None;
             }
             AppEvent::VolumeChanged(vol) => {
                 self.ui.volume = vol;
@@ -83,10 +83,10 @@ impl App {
                             self.ui.tr("err_playback").replace("{}", &e.to_string()),
                             NotificationLevel::Error,
                         );
-                        self.ui.current_song = None;
+                        self.ui.player.current_song = None;
                     }
                 }
-                self.ui.loading_status = None;
+                self.ui.player.loading_status = None;
             }
             AppEvent::AudioDownloadError(err) => {
                 self.ui.player_state = PlayerState::Stopped;
@@ -94,8 +94,8 @@ impl App {
                     self.ui.tr("err_playback").replace("{}", &err),
                     NotificationLevel::Error,
                 );
-                self.ui.loading_status = None;
-                self.ui.current_song = None;
+                self.ui.player.loading_status = None;
+                self.ui.player.current_song = None;
             }
             AppEvent::Exit => {
                 tracing::info!("Exit event received — triggering cleanup");
