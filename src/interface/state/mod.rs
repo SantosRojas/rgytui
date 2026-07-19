@@ -1,50 +1,11 @@
-use std::collections::VecDeque;
-use std::time::{Duration, Instant};
-
 use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
 use crate::shared::spectrum::SpectrumFrame;
 use crate::interface::i18n::Translations;
 use crate::interface::theme::Theme;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum NotificationLevel {
-    Info,
-    Success,
-    Warning,
-    Error,
-}
-
-#[derive(Clone, Debug)]
-pub struct Notification {
-    pub message: String,
-    pub level: NotificationLevel,
-    pub timestamp: Instant,
-    pub duration: Duration,
-}
-
-impl Notification {
-    pub fn new(message: String, level: NotificationLevel) -> Self {
-        let duration = match level {
-            NotificationLevel::Error => Duration::from_secs(8),
-            _ => Duration::from_secs(4),
-        };
-        Self { message, level, timestamp: Instant::now(), duration }
-    }
-
-    pub fn icon(&self) -> &'static str {
-        match self.level {
-            NotificationLevel::Info    => "ℹ",
-            NotificationLevel::Success => "✓",
-            NotificationLevel::Warning => "⚠",
-            NotificationLevel::Error   => "✕",
-        }
-    }
-
-    pub fn expired(&self) -> bool {
-        self.timestamp.elapsed() > self.duration
-    }
-}
+pub mod notification;
+pub use notification::*;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ActiveScreen {
@@ -89,7 +50,7 @@ pub struct UiState {
     pub download_song: Option<Song>,
     pub spinner_frame: usize,
     pub download_pending: Option<(Song, String, String)>,
-    pub notifications: VecDeque<Notification>,
+    pub notifications: NotificationState,
     pub language: String,
     pub translations: Translations,
     pub cached_theme: Option<Theme>,
@@ -126,18 +87,15 @@ impl UiState {
     }
 
     pub fn push_notification(&mut self, message: String, level: NotificationLevel) {
-        self.notifications.push_back(Notification::new(message, level));
-        if self.notifications.len() > 5 {
-            self.notifications.pop_front();
-        }
+        self.notifications.push(message, level);
     }
 
     pub fn dismiss_old_notifications(&mut self) {
-        self.notifications.retain(|n| !n.expired());
+        self.notifications.dismiss_old();
     }
 
     pub fn active_notifications(&self) -> impl Iterator<Item = &Notification> {
-        self.notifications.iter().filter(|n| !n.expired())
+        self.notifications.active()
     }
 
     pub fn get_or_create_theme(&mut self) -> Theme {
@@ -182,7 +140,7 @@ impl Default for UiState {
             download_format: 0,
             download_song: None,
             download_pending: None,
-            notifications: VecDeque::new(),
+            notifications: NotificationState::default(),
             spinner_frame: 0,
             language: "es".into(),
             translations: Translations::load("es"),
