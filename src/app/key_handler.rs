@@ -105,11 +105,16 @@ impl App {
 
     fn handle_help_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
         match key.code {
-            KeyCode::Char('q') => Ok(true),
-            _ => {
+            KeyCode::Char('q') => {
+                // q — close help (NOT exit app)
                 self.ui.active_screen = ActiveScreen::Search;
                 Ok(false)
             }
+            KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('h') => {
+                self.ui.active_screen = ActiveScreen::Search;
+                Ok(false)
+            }
+            _ => Ok(false), // all other keys silently ignored
         }
     }
 
@@ -279,6 +284,11 @@ impl App {
                     NotificationLevel::Info,
                 );
             }
+            KeyCode::Char('q') => {
+                // q — exit player, return to search
+                self.ui.active_screen = ActiveScreen::Search;
+                self.ui.focus = Focus::SearchInput;
+            }
             KeyCode::Char('t') => {
                 self.ui.active_screen = ActiveScreen::Settings;
                 self.ui.focus = Focus::SearchInput;
@@ -291,6 +301,112 @@ impl App {
     #[allow(clippy::collapsible_match)]
     fn handle_search_queue_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
         match key.code {
+            // ── Keyboard shortcuts (focus-gated — NOT in SearchInput) ──
+            KeyCode::BackTab => {
+                // Shift+Tab — reverse focus cycle
+                self.ui.focus = match self.ui.focus {
+                    Focus::SearchInput => Focus::QueueList,
+                    Focus::SearchResults => Focus::SearchInput,
+                    Focus::QueueList => Focus::SearchResults,
+                };
+            }
+            KeyCode::Char('j') if self.ui.focus != Focus::SearchInput => {
+                // j — Down in lists
+                match self.ui.focus {
+                    Focus::SearchResults => {
+                        self.ui.search.selected_index = (self.ui.search.selected_index + 1)
+                            .min(self.ui.search.search_results.len().saturating_sub(1));
+                    }
+                    Focus::QueueList => {
+                        if !self.playlist.songs().is_empty() {
+                            self.ui.queue.queue_selected = (self.ui.queue.queue_selected + 1)
+                                .min(self.playlist.songs().len().saturating_sub(1));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Char('k') if self.ui.focus != Focus::SearchInput => {
+                // k — Up in lists
+                match self.ui.focus {
+                    Focus::SearchResults => {
+                        self.ui.search.selected_index = self.ui.search.selected_index.saturating_sub(1);
+                    }
+                    Focus::QueueList => {
+                        if !self.playlist.songs().is_empty() {
+                            self.ui.queue.queue_selected = self.ui.queue.queue_selected.saturating_sub(1);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Char('g') if self.ui.focus != Focus::SearchInput => {
+                // g — Go to top of list
+                match self.ui.focus {
+                    Focus::SearchResults => self.ui.search.selected_index = 0,
+                    Focus::QueueList => self.ui.queue.queue_selected = 0,
+                    _ => {}
+                }
+            }
+            KeyCode::Char('G') if self.ui.focus != Focus::SearchInput => {
+                // G — Go to bottom of list
+                match self.ui.focus {
+                    Focus::SearchResults => {
+                        self.ui.search.selected_index =
+                            self.ui.search.search_results.len().saturating_sub(1);
+                    }
+                    Focus::QueueList => {
+                        self.ui.queue.queue_selected =
+                            self.playlist.songs().len().saturating_sub(1);
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Char('h') if self.ui.focus != Focus::SearchInput => {
+                // h — Toggle help (alias for ?)
+                self.ui.active_screen = if self.ui.active_screen == ActiveScreen::Help {
+                    ActiveScreen::Search
+                } else {
+                    ActiveScreen::Help
+                };
+            }
+            KeyCode::Char('u')
+                if self.ui.focus != Focus::SearchInput
+                    && key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                // Ctrl+u — scroll half page up
+                match self.ui.focus {
+                    Focus::SearchResults => {
+                        self.ui.search.selected_index =
+                            self.ui.search.selected_index.saturating_sub(10);
+                    }
+                    Focus::QueueList => {
+                        self.ui.queue.queue_selected =
+                            self.ui.queue.queue_selected.saturating_sub(10);
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Char('d')
+                if self.ui.focus != Focus::SearchInput
+                    && key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                // Ctrl+d — scroll half page down
+                match self.ui.focus {
+                    Focus::SearchResults => {
+                        let max = self.ui.search.search_results.len().saturating_sub(1);
+                        self.ui.search.selected_index =
+                            (self.ui.search.selected_index + 10).min(max);
+                    }
+                    Focus::QueueList => {
+                        let max = self.playlist.songs().len().saturating_sub(1);
+                        self.ui.queue.queue_selected =
+                            (self.ui.queue.queue_selected + 10).min(max);
+                    }
+                    _ => {}
+                }
+            }
+            // ── Standard keys ──
             KeyCode::Tab => {
                 self.ui.focus = match self.ui.focus {
                     Focus::SearchInput => Focus::SearchResults,

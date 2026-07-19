@@ -214,6 +214,21 @@ mod tests {
         Some(App::new(playback, search, playlist, config_port).await)
     }
 
+    fn song(id: u32) -> Song {
+        Song {
+            id: format!("id-{id}"),
+            title: format!("Song {id}"),
+            channel: "Test".into(),
+            duration: 100.0,
+            thumbnail: None,
+            webpage_url: "http://example.com".into(),
+        }
+    }
+
+    fn songs(count: u32) -> Vec<Song> {
+        (0..count).map(song).collect()
+    }
+
     #[tokio::test]
     async fn test_ctrl_c_triggers_exit() {
         let mut app = match build_test_app().await {
@@ -345,5 +360,467 @@ mod tests {
 
         // After retry, pending_play should be Some (it schedules a new play)
         assert!(app.pending_play.is_some(), "retry should set pending_play");
+    }
+
+    // ── Task 3.1: j/k list navigation ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_j_navigates_down_in_search_results() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        app.ui.search.search_results = songs(5);
+        app.ui.search.selected_index = 1;
+
+        let result = app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).await.unwrap();
+        assert!(!result, "j should not signal exit");
+        assert_eq!(app.ui.search.selected_index, 2, "j should increment selected_index");
+    }
+
+    #[tokio::test]
+    async fn test_k_navigates_up_in_search_results() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        app.ui.search.search_results = songs(5);
+        app.ui.search.selected_index = 3;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.search.selected_index, 2, "k should decrement selected_index");
+    }
+
+    #[tokio::test]
+    async fn test_j_in_queue_list() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::QueueList;
+        for s in songs(5) {
+            app.playlist.add(s);
+        }
+        app.ui.queue.queue_selected = 1;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.queue.queue_selected, 2, "j in queue should increment queue_selected");
+    }
+
+    #[tokio::test]
+    async fn test_k_in_queue_list() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::QueueList;
+        for s in songs(5) {
+            app.playlist.add(s);
+        }
+        app.ui.queue.queue_selected = 3;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.queue.queue_selected, 2, "k in queue should decrement queue_selected");
+    }
+
+    #[tokio::test]
+    async fn test_j_in_search_input_types_char() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchInput;
+        app.ui.search.search_query.clear();
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.search.search_query, "j", "j in SearchInput should type 'j'");
+    }
+
+    #[tokio::test]
+    async fn test_k_in_search_input_types_char() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchInput;
+        app.ui.search.search_query.clear();
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.search.search_query, "k", "k in SearchInput should type 'k'");
+    }
+
+    #[tokio::test]
+    async fn test_j_at_bottom_does_not_overflow() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        app.ui.search.search_results = songs(3);
+        app.ui.search.selected_index = 2; // last item
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.search.selected_index, 2, "j at bottom should not overflow");
+    }
+
+    #[tokio::test]
+    async fn test_k_at_top_does_not_underflow() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        app.ui.search.search_results = songs(3);
+        app.ui.search.selected_index = 0;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.search.selected_index, 0, "k at top should not underflow");
+    }
+
+    // ── Task 3.2: g/G top/bottom navigation ─────────────────────────────────
+
+    #[tokio::test]
+    async fn test_g_goes_to_top_in_search() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        app.ui.search.search_results = songs(10);
+        app.ui.search.selected_index = 7;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.search.selected_index, 0, "g should go to index 0");
+    }
+
+    #[tokio::test]
+    async fn test_g_capital_goes_to_bottom_in_search() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        app.ui.search.search_results = songs(10);
+        app.ui.search.selected_index = 0;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.search.selected_index, 9, "G should go to last index");
+    }
+
+    #[tokio::test]
+    async fn test_g_goes_to_top_in_queue() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::QueueList;
+        for s in songs(10) {
+            app.playlist.add(s);
+        }
+        app.ui.queue.queue_selected = 5;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.queue.queue_selected, 0, "g in queue should go to index 0");
+    }
+
+    #[tokio::test]
+    async fn test_g_capital_goes_to_bottom_in_queue() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::QueueList;
+        for s in songs(10) {
+            app.playlist.add(s);
+        }
+        app.ui.queue.queue_selected = 0;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.queue.queue_selected, 9, "G in queue should go to last index");
+    }
+
+    #[tokio::test]
+    async fn test_g_on_empty_list_does_not_panic() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        // empty search_results
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.search.selected_index, 0, "g on empty list should not panic");
+    }
+
+    #[tokio::test]
+    async fn test_g_capital_on_empty_list_does_not_panic() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        // empty search_results
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.search.selected_index, 0, "G on empty list should not panic");
+    }
+
+    #[tokio::test]
+    async fn test_g_in_search_input_types_char() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchInput;
+        app.ui.search.search_query.clear();
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.search.search_query, "g", "g in SearchInput should type 'g'");
+    }
+
+    // ── Task 3.3: Ctrl+u / Ctrl+d half-page scroll ─────────────────────────
+
+    #[tokio::test]
+    async fn test_ctrl_d_scrolls_down_half_page() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        app.ui.search.search_results = songs(30);
+        app.ui.search.selected_index = 0;
+
+        let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        app.handle_key(ctrl_d).await.unwrap();
+        assert_eq!(app.ui.search.selected_index, 10, "Ctrl+d should scroll down 10");
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_u_scrolls_up_half_page() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        app.ui.search.search_results = songs(30);
+        app.ui.search.selected_index = 25;
+
+        let ctrl_u = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL);
+        app.handle_key(ctrl_u).await.unwrap();
+        assert_eq!(app.ui.search.selected_index, 15, "Ctrl+u should scroll up 10");
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_d_does_not_conflict_with_download() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        app.ui.search.search_results = songs(10);
+        app.ui.search.selected_index = 5;
+        app.ui.download.show_download_popup = false;
+
+        let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        app.handle_key(ctrl_d).await.unwrap();
+        // Ctrl+d should scroll, NOT trigger download popup
+        assert!(!app.ui.download.show_download_popup, "Ctrl+d should NOT trigger download popup");
+        // selected should be clamped to last item (9)
+        assert_eq!(app.ui.search.selected_index, 9, "Ctrl+d should scroll, clamped to max");
+    }
+
+    #[tokio::test]
+    async fn test_plain_d_still_triggers_download() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        app.ui.search.search_results = songs(5);
+        app.ui.search.selected_index = 2;
+
+        // Regular 'd' (no Ctrl) should still trigger download popup
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)).await.unwrap();
+        assert!(app.ui.download.show_download_popup, "plain d should trigger download popup");
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_u_at_top_does_not_underflow() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+        app.ui.search.search_results = songs(30);
+        app.ui.search.selected_index = 2;
+
+        let ctrl_u = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL);
+        app.handle_key(ctrl_u).await.unwrap();
+        // 2 - 10 = 0 (saturating)
+        assert_eq!(app.ui.search.selected_index, 0, "Ctrl+u near top should saturate at 0");
+    }
+
+    // ── Task 3.4: Shift+Tab reverse focus cycling ──────────────────────────
+
+    #[tokio::test]
+    async fn test_shift_tab_reverse_cycles_from_search_input() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchInput;
+
+        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.focus, Focus::QueueList);
+    }
+
+    #[tokio::test]
+    async fn test_shift_tab_reverse_cycles_from_search_results() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchResults;
+
+        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.focus, Focus::SearchInput);
+    }
+
+    #[tokio::test]
+    async fn test_shift_tab_reverse_cycles_from_queue() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::QueueList;
+
+        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.focus, Focus::SearchResults);
+    }
+
+    #[tokio::test]
+    async fn test_tab_still_cycles_forward() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchInput;
+
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.focus, Focus::SearchResults);
+    }
+
+    // ── Task 3.5: h as help alias ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_h_toggles_help_on_from_search() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.active_screen = ActiveScreen::Search;
+        app.ui.focus = Focus::SearchResults;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.active_screen, ActiveScreen::Help, "h from search should toggle help ON");
+    }
+
+    #[tokio::test]
+    async fn test_h_in_search_input_types_char() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.focus = Focus::SearchInput;
+        app.ui.active_screen = ActiveScreen::Search;
+        app.ui.search.search_query.clear();
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.search.search_query, "h", "h in SearchInput should type 'h'");
+    }
+
+    // ── Task 3.6: Player q exits to search ─────────────────────────────────
+
+    #[tokio::test]
+    async fn test_player_q_returns_to_search() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.active_screen = ActiveScreen::Player;
+
+        let result = app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)).await.unwrap();
+        assert!(!result, "q in player should not exit app");
+        assert_eq!(app.ui.active_screen, ActiveScreen::Search, "q in player should go to Search");
+        assert_eq!(app.ui.focus, Focus::SearchInput, "q in player should set focus to SearchInput");
+    }
+
+    // ── Task 3.7: Help screen restricted exit ──────────────────────────────
+
+    #[tokio::test]
+    async fn test_help_q_closes_help() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.active_screen = ActiveScreen::Help;
+
+        let result = app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)).await.unwrap();
+        assert!(!result, "q in help should NOT exit app (should close help)");
+        assert_eq!(app.ui.active_screen, ActiveScreen::Search, "q in help should close to Search");
+    }
+
+    #[tokio::test]
+    async fn test_help_esc_closes_help() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.active_screen = ActiveScreen::Help;
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.active_screen, ActiveScreen::Search, "Esc in help should close to Search");
+    }
+
+    #[tokio::test]
+    async fn test_help_question_closes_help() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.active_screen = ActiveScreen::Help;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.active_screen, ActiveScreen::Search, "? in help should close to Search");
+    }
+
+    #[tokio::test]
+    async fn test_help_h_closes_help() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.active_screen = ActiveScreen::Help;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(app.ui.active_screen, ActiveScreen::Search, "h in help should close to Search");
+    }
+
+    #[tokio::test]
+    async fn test_help_random_key_ignored() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.active_screen = ActiveScreen::Help;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)).await.unwrap();
+        assert_eq!(
+            app.ui.active_screen,
+            ActiveScreen::Help,
+            "random key in help should be silently ignored"
+        );
     }
 }
