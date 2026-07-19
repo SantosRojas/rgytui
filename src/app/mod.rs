@@ -14,7 +14,7 @@ pub(crate) use crate::domain::player_state::PlayerState;
 pub(crate) use crate::infrastructure::config::store::AppSettings;
 use crate::interface::app_ui;
 use crate::interface::i18n::Translations;
-pub(crate) use crate::interface::state::{ActiveScreen, ConfigState, Focus, NotificationLevel, UiState};
+pub(crate) use crate::interface::state::{ActiveScreen, ConfigState, Focus, NotificationLevel, RenderSnapshot, UiState};
 pub(crate) use crate::shared::event::AppEvent;
 
 pub mod lifecycle;
@@ -38,7 +38,6 @@ pub struct App {
     pending_play: Option<Song>,
     last_search: Option<Instant>,
     download_semaphore: Arc<Semaphore>,
-    last_playlist_version: usize,
 }
 
 impl App {
@@ -80,7 +79,6 @@ impl App {
         };
         let translations = Translations::load(&language);
         let ui = UiState {
-            volume: settings.volume.clamp(0.0, 1.0),
             config: ConfigState::new(
                 settings.theme.clone(),
                 settings.accent_color.clone(),
@@ -105,7 +103,6 @@ impl App {
             pending_play: None,
             last_search: None,
             download_semaphore: Arc::new(Semaphore::new(3)),
-            last_playlist_version: 0,
         }
     }
 
@@ -119,10 +116,10 @@ impl App {
         loop {
             self.ui.dismiss_old_notifications();
 
-            self.sync_ui_queue();
             let theme = self.ui.get_or_create_theme();
+            let render_state = RenderSnapshot::from_use_cases(&self.playback, &self.playlist);
             terminal.draw(|frame| {
-                app_ui::render(frame, &self.ui, self.playback.mode(), &theme);
+                app_ui::render(frame, &self.ui, &render_state, &theme);
             })?;
 
             if self.handle_pending_play().await {
@@ -267,7 +264,6 @@ mod tests {
         // Send PlaybackError
         app.handle_event(AppEvent::PlaybackError("Something went wrong".into()));
         assert!(app.ui.player.current_song.is_none(), "current_song should be cleared after error");
-        assert_eq!(app.ui.player_state, PlayerState::Stopped);
     }
 
     #[tokio::test]
@@ -291,7 +287,6 @@ mod tests {
 
         app.handle_event(AppEvent::AudioDownloadError("Download failed".into()));
         assert!(app.ui.player.current_song.is_none(), "current_song should be cleared after download error");
-        assert_eq!(app.ui.player_state, PlayerState::Stopped);
     }
 
     #[tokio::test]
@@ -321,16 +316,13 @@ mod tests {
         // Simulate an error
         app.handle_event(AppEvent::PlaybackError("Failed".into()));
         assert!(app.ui.player.current_song.is_none());
-        assert_eq!(app.ui.player_state, PlayerState::Stopped);
 
         // Now simulate re-selecting the same song: call schedule_play_selected
         // with the song in search results
         app.ui.search.search_results.push(song.clone());
         app.schedule_play_selected();
 
-        // After retry, state should be Loading and pending_play should be Some
-        assert_eq!(app.ui.player_state, PlayerState::Loading,
-            "retry after error should set Loading state");
+        // After retry, pending_play should be Some (it schedules a new play)
         assert!(app.pending_play.is_some(), "retry should set pending_play");
     }
 }

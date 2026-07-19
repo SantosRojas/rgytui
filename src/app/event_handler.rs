@@ -23,27 +23,23 @@ impl App {
             }
             AppEvent::PlaybackStarted(song) => {
                 self.ui.player.current_song = Some(song);
-                self.ui.player_state = PlayerState::Loading;
                 self.ui.search.is_searching = false;
             }
             AppEvent::PlaybackFinished => {
-                self.ui.player_state = PlayerState::Stopped;
                 if let Some(next) = self.playlist.next().cloned() {
                     self.queue_play(next);
                 }
             }
             AppEvent::PlaybackPaused => {
-                self.ui.player_state = PlayerState::Paused;
+                // State is read from playback use case via RenderSnapshot
             }
             AppEvent::PlaybackResumed => {
-                self.ui.player_state = PlayerState::Playing;
+                // State is read from playback use case via RenderSnapshot
             }
             AppEvent::PlaybackStopped => {
-                self.ui.player_state = PlayerState::Stopped;
-                self.ui.progress = 0.0;
+                // State is read from playback use case via RenderSnapshot
             }
             AppEvent::PlaybackError(err) => {
-                self.ui.player_state = PlayerState::Stopped;
                 self.ui.push_notification(
                     self.ui.tr("err_playback").replace("{}", &err),
                     NotificationLevel::Error,
@@ -51,7 +47,7 @@ impl App {
                 self.ui.player.current_song = None;
             }
             AppEvent::VolumeChanged(vol) => {
-                self.ui.volume = vol;
+                self.playback.set_volume(vol);
                 self.ui.push_notification(
                     self.ui.tr("notif_volume").replace("{:.0}", &format!("{:.0}", vol * 100.0)),
                     NotificationLevel::Info,
@@ -72,13 +68,9 @@ impl App {
             AppEvent::AudioReady { song, data } => {
                 match self.playback.play_bytes(data, song) {
                     Ok(()) => {
-                        self.ui.player_state = PlayerState::Playing;
-                        self.ui.progress = 0.0;
-                        self.ui.duration = self.playback.current_duration();
                         self.ui.push_notification(self.ui.tr("notif_playing"), NotificationLevel::Info);
                     }
                     Err(e) => {
-                        self.ui.player_state = PlayerState::Stopped;
                         self.ui.push_notification(
                             self.ui.tr("err_playback").replace("{}", &e.to_string()),
                             NotificationLevel::Error,
@@ -89,7 +81,6 @@ impl App {
                 self.ui.player.loading_status = None;
             }
             AppEvent::AudioDownloadError(err) => {
-                self.ui.player_state = PlayerState::Stopped;
                 self.ui.push_notification(
                     self.ui.tr("err_playback").replace("{}", &err),
                     NotificationLevel::Error,

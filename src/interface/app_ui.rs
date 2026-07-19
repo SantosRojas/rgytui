@@ -5,13 +5,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, BorderType, Clear, List, ListItem, Paragraph};
 use ratatui::Frame;
 
-use crate::domain::audio_mode::AudioMode;
 use crate::interface::components::status_bar::StatusBar;
 use crate::interface::screens::{help_screen, player_screen, search_screen, settings_screen};
-use crate::interface::state::{ActiveScreen, Focus, NotificationLevel, UiState};
+use crate::interface::state::{ActiveScreen, Focus, NotificationLevel, RenderSnapshot, UiState};
 use crate::interface::theme::Theme;
 
-pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode, theme: &Theme) {
+pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -39,20 +38,20 @@ pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode, theme: 
             help_screen::render(frame, main_area, &state.config.translations, theme);
         }
         ActiveScreen::Settings => {
-            settings_screen::render(frame, main_area, state, theme);
+            settings_screen::render(frame, main_area, state, snapshot, theme);
         }
         ActiveScreen::Player => {
-            player_screen::render(frame, main_area, state, theme);
+            player_screen::render(frame, main_area, state, snapshot, theme);
         }
         ActiveScreen::Search => {
-            render_hybrid(frame, main_area, state, theme);
+            render_hybrid(frame, main_area, state, snapshot, theme);
         }
     }
 
     let status_bar = StatusBar::new()
-        .player_state(state.player_state)
-        .audio_mode(audio_mode)
-        .volume(state.volume)
+        .player_state(snapshot.player_state)
+        .audio_mode(snapshot.audio_mode)
+        .volume(snapshot.volume)
         .focus(state.focus)
         .translations(state.config.translations.clone())
         .theme(*theme);
@@ -172,17 +171,17 @@ fn render_notifications(frame: &mut Frame, area: Rect, state: &UiState, theme: &
     }
 }
 
-fn render_hybrid(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
+fn render_hybrid(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Ratio(35, 100), Constraint::Ratio(65, 100)])
         .split(area);
 
-    render_left_panel(frame, chunks[0], state, theme);
-    render_right_panel(frame, chunks[1], state, theme);
+    render_left_panel(frame, chunks[0], state, snapshot, theme);
+    render_right_panel(frame, chunks[1], state, snapshot, theme);
 }
 
-fn render_left_panel(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
+fn render_left_panel(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -191,11 +190,11 @@ fn render_left_panel(frame: &mut Frame, area: Rect, state: &UiState, theme: &The
         ])
         .split(area);
 
-    render_now_playing(frame, chunks[0], state, theme);
-    render_queue(frame, chunks[1], state, theme);
+    render_now_playing(frame, chunks[0], state, snapshot, theme);
+    render_queue(frame, chunks[1], state, snapshot, theme);
 }
 
-fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
+fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
     use crate::interface::components::loading::LoadingWidget;
 
     let inner_area = {
@@ -209,7 +208,7 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
         inner
     };
 
-    let is_loading = state.player_state == crate::domain::player_state::PlayerState::Loading
+    let is_loading = snapshot.player_state == crate::domain::player_state::PlayerState::Loading
         || state.player.loading_status.is_some();
 
     if is_loading {
@@ -218,7 +217,7 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
             .message(state.player.loading_status.clone().unwrap_or_else(|| state.tr("player_loading")));
         frame.render_widget(loading, inner_area);
     } else if let Some(ref song) = state.player.current_song {
-        let status_icon = match state.player_state {
+        let status_icon = match snapshot.player_state {
             crate::domain::player_state::PlayerState::Playing => "▶",
             crate::domain::player_state::PlayerState::Paused  => "⏸",
             crate::domain::player_state::PlayerState::Loading => "⟳",
@@ -243,8 +242,8 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
             ]),
             Line::from(Span::styled(
                 format!("  {:02}:{:02} / {:02}:{:02}",
-                    state.progress as u64 / 60, state.progress as u64 % 60,
-                    state.duration as u64 / 60, state.duration as u64 % 60),
+                    snapshot.progress as u64 / 60, snapshot.progress as u64 % 60,
+                    snapshot.duration as u64 / 60, snapshot.duration as u64 % 60),
                 Style::default().fg(theme.warning),
             )),
         ];
@@ -257,7 +256,7 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
                 .split(inner_area);
             frame.render_widget(paragraph, sub[0]);
 
-            let spectrum = crate::interface::components::spectrum::SpectrumWidget::new(state.spectrum.bands, state.spectrum.peaks, theme.accent).no_block();
+            let spectrum = crate::interface::components::spectrum::SpectrumWidget::new(snapshot.spectrum.bands, snapshot.spectrum.peaks, theme.accent).no_block();
             frame.render_widget(spectrum, sub[1]);
         } else {
             frame.render_widget(paragraph, inner_area);
@@ -275,14 +274,14 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, theme: &Th
     }
 }
 
-fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
+fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
     let border_color = if state.focus == Focus::QueueList {
         theme.border_active
     } else {
         theme.border_inactive
     };
 
-    let queue_title = format!(" 📋 {} ", state.tr("queue_title").replace("{}", &state.queue_songs.len().to_string()));
+    let queue_title = format!(" 📋 {} ", state.tr("queue_title").replace("{}", &snapshot.queue_songs.len().to_string()));
     let inner_area = {
         let block = Block::default()
             .borders(Borders::ALL)
@@ -294,7 +293,7 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         inner
     };
 
-    if state.queue_songs.is_empty() {
+    if snapshot.queue_songs.is_empty() {
         let empty = Paragraph::new(Line::from(Span::styled(
             state.tr("queue_empty"),
             Style::default().fg(theme.text_muted),
@@ -304,14 +303,14 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         return;
     }
 
-    let items: Vec<ListItem> = state
+    let items: Vec<ListItem> = snapshot
         .queue_songs
         .iter()
         .enumerate()
         .map(|(i, song)| {
-            let prefix = if i == state.queue_current {
+            let prefix = if i == snapshot.queue_current {
                 format!("▶ {:2}.", i + 1)
-            } else if i < state.queue_current {
+            } else if i < snapshot.queue_current {
                 format!("✓ {:2}.", i + 1)
             } else {
                 format!("  {:2}.", i + 1)
@@ -319,9 +318,9 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
 
             let prefix_color = if i == state.queue.queue_selected {
                 theme.highlight_fg
-            } else if i == state.queue_current {
+            } else if i == snapshot.queue_current {
                 theme.accent
-            } else if i < state.queue_current {
+            } else if i < snapshot.queue_current {
                 theme.success
             } else {
                 theme.text_muted
@@ -334,7 +333,7 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
                     &song.title,
                     Style::default().fg(if i == state.queue.queue_selected {
                         theme.highlight_fg
-                    } else if i == state.queue_current {
+                    } else if i == snapshot.queue_current {
                         theme.accent
                     } else {
                         theme.text
@@ -353,6 +352,6 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     frame.render_widget(list, inner_area);
 }
 
-fn render_right_panel(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
-    search_screen::render(frame, area, state, theme);
+fn render_right_panel(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
+    search_screen::render(frame, area, state, snapshot, theme);
 }

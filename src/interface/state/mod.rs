@@ -1,12 +1,9 @@
-use crate::domain::media::Song;
-use crate::domain::player_state::PlayerState;
-use crate::shared::spectrum::SpectrumFrame;
-
 pub mod config;
 pub mod download;
 pub mod notification;
 pub mod player;
 pub mod queue;
+pub mod render;
 pub mod search;
 pub mod settings;
 pub use config::*;
@@ -14,6 +11,7 @@ pub use download::*;
 pub use notification::*;
 pub use player::*;
 pub use queue::*;
+pub use render::*;
 pub use search::*;
 pub use settings::*;
 
@@ -37,13 +35,6 @@ pub struct UiState {
     pub active_screen: ActiveScreen,
     pub focus: Focus,
     pub search: SearchState,
-    pub player_state: PlayerState,
-    pub progress: f64,
-    pub duration: f64,
-    pub volume: f32,
-    pub queue_songs: Vec<Song>,
-    pub queue_current: usize,
-    pub spectrum: SpectrumFrame,
     pub config: ConfigState,
     pub settings: SettingsState,
     pub download: DownloadPopupState,
@@ -55,22 +46,6 @@ pub struct UiState {
 impl UiState {
     pub fn tr(&self, key: &str) -> String {
         self.config.tr(key)
-    }
-
-    pub fn progress_percent(&self) -> f64 {
-        if self.duration > 0.0 {
-            (self.progress / self.duration * 100.0).clamp(0.0, 100.0)
-        } else {
-            0.0
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn volume_bar(&self) -> String {
-        let vol = self.volume.clamp(0.0, 1.0);
-        let filled = (vol * 20.0) as usize;
-        let empty = 20usize.saturating_sub(filled);
-        format!("{}█{}", "█".repeat(filled), "░".repeat(empty))
     }
 
     pub fn tick_spinner(&mut self) {
@@ -108,13 +83,6 @@ impl Default for UiState {
             active_screen: ActiveScreen::Search,
             focus: Focus::SearchInput,
             search: SearchState::default(),
-            player_state: PlayerState::Idle,
-            progress: 0.0,
-            duration: 0.0,
-            volume: 0.8,
-            queue_songs: Vec::new(),
-            queue_current: 0,
-            spectrum: SpectrumFrame::default(),
             config: ConfigState::default(),
             settings: SettingsState::default(),
             download: DownloadPopupState::default(),

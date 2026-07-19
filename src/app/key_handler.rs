@@ -182,8 +182,8 @@ impl App {
             },
             KeyCode::Char('=') | KeyCode::Char('+') => match self.ui.settings.settings_focus {
                 2 => {
-                    self.ui.volume = (self.ui.volume + 0.05).min(1.0);
-                    self.playback.set_volume(self.ui.volume);
+                    let vol = (self.playback.volume() + 0.05).min(1.0);
+                    self.playback.set_volume(vol);
                 }
                 3 => {
                     self.ui.config.default_search_limit =
@@ -193,8 +193,8 @@ impl App {
             },
             KeyCode::Char('-') | KeyCode::Char('_') => match self.ui.settings.settings_focus {
                 2 => {
-                    self.ui.volume = (self.ui.volume - 0.05).max(0.0);
-                    self.playback.set_volume(self.ui.volume);
+                    let vol = (self.playback.volume() - 0.05).max(0.0);
+                    self.playback.set_volume(vol);
                 }
                 3 => {
                     self.ui.config.default_search_limit = self
@@ -225,7 +225,6 @@ impl App {
             KeyCode::Char(' ') => match self.playback.state() {
                 PlayerState::Playing => {
                     if self.playback.pause().is_ok() {
-                        self.ui.player_state = PlayerState::Paused;
                         self.ui.push_notification(
                             self.ui.tr("notif_paused"),
                             NotificationLevel::Info,
@@ -234,7 +233,6 @@ impl App {
                 }
                 PlayerState::Paused => {
                     if self.playback.resume().is_ok() {
-                        self.ui.player_state = PlayerState::Playing;
                         self.ui.push_notification(
                             self.ui.tr("notif_resumed"),
                             NotificationLevel::Info,
@@ -248,8 +246,6 @@ impl App {
                 if let Err(e) = self.playback.stop() {
                     tracing::warn!("Failed to stop playback: {}", e);
                 }
-                self.ui.player_state = PlayerState::Stopped;
-                self.ui.progress = 0.0;
                 self.ui.push_notification(
                     self.ui.tr("notif_stopped"),
                     NotificationLevel::Info,
@@ -268,7 +264,6 @@ impl App {
             KeyCode::Char('=') | KeyCode::Char('+') => {
                 let vol = (self.playback.volume() + 0.05).min(1.0);
                 self.playback.set_volume(vol);
-                self.ui.volume = vol;
                 self.ui.push_notification(
                     self.ui.tr("notif_volume")
                         .replace("{:.0}", &format!("{:.0}", vol * 100.0)),
@@ -278,7 +273,6 @@ impl App {
             KeyCode::Char('-') | KeyCode::Char('_') => {
                 let vol = (self.playback.volume() - 0.05).max(0.0);
                 self.playback.set_volume(vol);
-                self.ui.volume = vol;
                 self.ui.push_notification(
                     self.ui.tr("notif_volume")
                         .replace("{:.0}", &format!("{:.0}", vol * 100.0)),
@@ -309,7 +303,7 @@ impl App {
                     self.ui.search.selected_index = self.ui.search.selected_index.saturating_sub(1);
                 }
                 Focus::QueueList => {
-                    if !self.ui.queue_songs.is_empty() {
+                    if !self.playlist.songs().is_empty() {
                         self.ui.queue.queue_selected = self.ui.queue.queue_selected.saturating_sub(1);
                     }
                 }
@@ -321,9 +315,9 @@ impl App {
                         .min(self.ui.search.search_results.len().saturating_sub(1));
                 }
                 Focus::QueueList => {
-                    if !self.ui.queue_songs.is_empty() {
+                    if !self.playlist.songs().is_empty() {
                         self.ui.queue.queue_selected = (self.ui.queue.queue_selected + 1)
-                            .min(self.ui.queue_songs.len().saturating_sub(1));
+                            .min(self.playlist.songs().len().saturating_sub(1));
                     }
                 }
                 _ => {}
@@ -350,7 +344,7 @@ impl App {
                 }
                 Focus::QueueList => {
                     let idx = self.ui.queue.queue_selected;
-                    if idx < self.ui.queue_songs.len() {
+                    if idx < self.playlist.songs().len() {
                         self.playlist.set_current_index(idx);
                         if let Some(song) = self.playlist.current_song_cloned() {
                             self.queue_play(song);
@@ -376,7 +370,6 @@ impl App {
             KeyCode::Char(' ') => match self.playback.state() {
                 PlayerState::Playing => {
                     if self.playback.pause().is_ok() {
-                        self.ui.player_state = PlayerState::Paused;
                         self.ui.push_notification(
                             self.ui.tr("notif_paused"),
                             NotificationLevel::Info,
@@ -385,7 +378,6 @@ impl App {
                 }
                 PlayerState::Paused => {
                     if self.playback.resume().is_ok() {
-                        self.ui.player_state = PlayerState::Playing;
                         self.ui.push_notification(
                             self.ui.tr("notif_resumed"),
                             NotificationLevel::Info,
@@ -401,8 +393,6 @@ impl App {
                 if let Err(e) = self.playback.stop() {
                     tracing::warn!("Failed to stop playback: {}", e);
                 }
-                self.ui.player_state = PlayerState::Stopped;
-                self.ui.progress = 0.0;
                 self.ui.push_notification(
                     self.ui.tr("notif_stopped"),
                     NotificationLevel::Info,
@@ -421,7 +411,6 @@ impl App {
             KeyCode::Char('=') | KeyCode::Char('+') => {
                 let vol = (self.playback.volume() + 0.05).min(1.0);
                 self.playback.set_volume(vol);
-                self.ui.volume = vol;
                 self.ui.push_notification(
                     self.ui.tr("notif_volume")
                         .replace("{:.0}", &format!("{:.0}", vol * 100.0)),
@@ -431,7 +420,6 @@ impl App {
             KeyCode::Char('-') | KeyCode::Char('_') => {
                 let vol = (self.playback.volume() - 0.05).max(0.0);
                 self.playback.set_volume(vol);
-                self.ui.volume = vol;
                 self.ui.push_notification(
                     self.ui.tr("notif_volume")
                         .replace("{:.0}", &format!("{:.0}", vol * 100.0)),
@@ -468,7 +456,7 @@ impl App {
                 }
             }
             KeyCode::Delete => {
-                if self.ui.focus == Focus::QueueList && !self.ui.queue_songs.is_empty() {
+                if self.ui.focus == Focus::QueueList && !self.playlist.songs().is_empty() {
                     let idx = self.ui.queue.queue_selected;
                     self.playlist.remove(idx);
                 }
@@ -481,7 +469,7 @@ impl App {
                     }
                     Focus::QueueList => {
                         self.ui.download.download_song =
-                            self.ui.queue_songs.get(self.ui.queue.queue_selected).cloned();
+                            self.playlist.songs().get(self.ui.queue.queue_selected).cloned();
                     }
                     _ => {}
                 }

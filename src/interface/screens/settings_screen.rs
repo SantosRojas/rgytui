@@ -4,11 +4,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, BorderType, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::interface::state::UiState;
+use crate::interface::state::{RenderSnapshot, UiState};
 use crate::interface::theme::Theme;
 
 
-pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
+pub fn render(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -42,7 +42,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         ])),
         ListItem::new(Line::from(vec![
             Span::styled(state.tr("settings_volume"), Style::default().fg(theme.text)),
-            Span::styled(format!("{}%", (state.volume * 100.0) as u8), Style::default().fg(theme.accent)),
+            Span::styled(format!("{}%", (snapshot.volume * 100.0) as u8), Style::default().fg(theme.accent)),
         ])),
         ListItem::new(Line::from(vec![
             Span::styled(state.tr("settings_search_limit"), Style::default().fg(theme.text)),

@@ -1,35 +1,15 @@
 use super::*;
 
 impl App {
-    pub(crate) fn sync_ui_queue(&mut self) {
-        let current_version = self.playlist.playlist().version;
-        if current_version != self.last_playlist_version {
-            self.ui.queue_songs = self.playlist.songs().to_vec();
-            self.last_playlist_version = current_version;
-        }
-        if let Some(song) = self.playlist.playlist().current_song()
-            && let Some(pos) = self.ui.queue_songs.iter().position(|s| s.id == song.id)
-        {
-            self.ui.queue_current = pos;
-        }
-    }
-
     pub(crate) fn update_progress(&mut self) {
-        self.ui.spectrum = self.playback.get_spectrum();
         let state = self.playback.state();
         if let PlayerState::Playing | PlayerState::Paused = state {
-            self.ui.progress = self.playback.current_position();
-            self.ui.duration = self.playback.current_duration();
-            self.ui.player_state = state;
-
             if self.playback.state() == PlayerState::Playing
                 && self.playback.is_sink_empty()
             {
                 if let Err(e) = self.playback.stop() {
                     tracing::warn!("Failed to stop on auto-advance: {}", e);
                 }
-                self.ui.player_state = PlayerState::Stopped;
-                self.ui.progress = 0.0;
 
                 if let Some(next) = self.playlist.next().cloned() {
                     self.queue_play(next);

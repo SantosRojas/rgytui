@@ -5,10 +5,10 @@ use ratatui::widgets::{Block, Borders, BorderType, List, ListItem};
 use ratatui::Frame;
 
 use crate::interface::components::input_box::InputBox;
-use crate::interface::state::{Focus, UiState};
+use crate::interface::state::{Focus, RenderSnapshot, UiState};
 use crate::interface::theme::Theme;
 
-pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
+pub fn render(frame: &mut Frame, area: Rect, state: &UiState, _snapshot: &RenderSnapshot, theme: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(1)])

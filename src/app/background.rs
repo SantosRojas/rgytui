@@ -27,13 +27,9 @@ impl App {
                     // Video mode: still blocking (mpv handles its own window)
                     match self.playback.play(&song).await {
                         Ok(()) => {
-                            self.ui.player_state = PlayerState::Playing;
-                            self.ui.progress = 0.0;
-                            self.ui.duration = self.playback.current_duration();
                             self.ui.player.loading_status = None;
                         }
                         Err(e) => {
-                            self.ui.player_state = PlayerState::Stopped;
                             self.ui.push_notification(
                                 self.ui.tr("err_playback").replace("{}", &e.to_string()),
                                 NotificationLevel::Error,

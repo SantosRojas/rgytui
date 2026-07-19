@@ -8,10 +8,10 @@ use crate::domain::player_state::PlayerState;
 use crate::interface::components::loading::LoadingWidget;
 use crate::interface::components::progress_bar::ProgressBar;
 use crate::interface::components::spectrum::SpectrumWidget;
-use crate::interface::state::UiState;
+use crate::interface::state::{RenderSnapshot, UiState};
 use crate::interface::theme::Theme;
 
-pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
+pub fn render(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -27,7 +27,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let spectrum_area = chunks[2];
     let progress_area = chunks[3];
 
-    let status_icon = match state.player_state {
+    let status_icon = match snapshot.player_state {
         PlayerState::Playing => "▶",
         PlayerState::Paused  => "⏸",
         PlayerState::Loading => "⟳",
@@ -37,7 +37,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let status = if state.player.loading_status.is_some() {
         state.tr("player_loading")
     } else {
-        match state.player_state {
+        match snapshot.player_state {
             PlayerState::Playing => state.tr("player_playing"),
             PlayerState::Paused => state.tr("player_paused"),
             PlayerState::Loading => state.tr("player_loading"),
@@ -94,8 +94,8 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
             ]),
             Line::from(Span::styled(
                 format!("  {:02}:{:02} / {:02}:{:02}",
-                    state.progress as u64 / 60, state.progress as u64 % 60,
-                    state.duration as u64 / 60, state.duration as u64 % 60),
+                    snapshot.progress as u64 / 60, snapshot.progress as u64 % 60,
+                    snapshot.duration as u64 / 60, snapshot.duration as u64 % 60),
                 Style::default().fg(theme.warning),
             )),
         ])
@@ -119,20 +119,20 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
         frame.render_widget(no_song, info_area);
     }
 
-    if state.player_state == PlayerState::Loading || state.player.loading_status.is_some() {
+    if state.player.loading_status.is_some() || state.player.current_song.is_none() {
         let loading = LoadingWidget::new(state.player.spinner_frame, theme.accent)
             .message(state.player.loading_status.clone().unwrap_or_else(|| state.tr("player_loading")));
         frame.render_widget(loading, spectrum_area);
     } else {
-        let spectrum = SpectrumWidget::new(state.spectrum.bands, state.spectrum.peaks, theme.accent).no_block();
+        let spectrum = SpectrumWidget::new(snapshot.spectrum.bands, snapshot.spectrum.peaks, theme.accent).no_block();
         frame.render_widget(spectrum, spectrum_area);
     }
 
     if state.player.loading_status.is_none() && state.player.current_song.is_some() {
         let progress_bar = ProgressBar::new()
-            .progress(state.progress_percent() as f32)
-            .position(state.progress)
-            .duration(state.duration)
+            .progress(snapshot.progress_percent() as f32)
+            .position(snapshot.progress)
+            .duration(snapshot.duration)
             .accent(theme.accent);
         frame.render_widget(progress_bar, progress_area);
     }
