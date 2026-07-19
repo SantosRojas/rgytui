@@ -281,17 +281,47 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &Rende
         theme.border_inactive
     };
 
-    let queue_title = format!(" 📋 {} ", state.tr("queue_title").replace("{}", &snapshot.queue_songs.len().to_string()));
+    // Compute inner area first (dimensions are identical regardless of title text)
     let inner_area = {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title("")
+            .border_style(Style::default().fg(border_color));
+        block.inner(area)
+    };
+
+    let total_items = snapshot.queue_songs.len();
+    let visible_height = inner_area.height as usize;
+
+    // Approach B: derive scroll_offset from queue_selected at render time
+    let scroll_offset = if total_items > visible_height {
+        state.queue.queue_selected.min(total_items.saturating_sub(visible_height))
+    } else {
+        0
+    };
+
+    let position_indicator = if total_items > visible_height {
+        format!("  [{}/{}]", scroll_offset + 1, total_items)
+    } else {
+        String::new()
+    };
+
+    let queue_title = format!(
+        " 📋 {}{} ",
+        state.tr("queue_title").replace("{}", &total_items.to_string()),
+        position_indicator,
+    );
+
+    // Render the block with the final title
+    {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .title(queue_title)
             .border_style(Style::default().fg(border_color));
-        let inner = block.inner(area);
         block.render(area, frame.buffer_mut());
-        inner
-    };
+    }
 
     if snapshot.queue_songs.is_empty() {
         let empty = Paragraph::new(Line::from(Span::styled(
@@ -307,6 +337,8 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &Rende
         .queue_songs
         .iter()
         .enumerate()
+        .skip(scroll_offset)
+        .take(visible_height)
         .map(|(i, song)| {
             let prefix = if i == snapshot.queue_current {
                 format!("▶ {:2}.", i + 1)

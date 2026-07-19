@@ -41,12 +41,35 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, _snapshot: &Render
 
     frame.render_widget(input_box, search_area);
 
-    let count_text = format!(" ♫ {} ", state.tr("search_results").replace("{}", &state.search.search_results.len().to_string()));
+    let visible_height = (results_area.height as usize).saturating_sub(2); // subtract top/bottom borders
+    let total_items = state.search.search_results.len();
+
+    // Approach B: derive scroll_offset from selected_index at render time
+    let scroll_offset = if total_items > visible_height {
+        state.search.selected_index.min(total_items.saturating_sub(visible_height))
+    } else {
+        0
+    };
+
+    let position_indicator = if total_items > visible_height {
+        format!("  [{}/{}]", scroll_offset + 1, total_items)
+    } else {
+        String::new()
+    };
+
+    let count_text = format!(
+        " ♫ {}{} ",
+        state.tr("search_results").replace("{}", &total_items.to_string()),
+        position_indicator,
+    );
+
     let items: Vec<ListItem> = state
         .search
         .search_results
         .iter()
         .enumerate()
+        .skip(scroll_offset)
+        .take(visible_height)
         .map(|(i, song)| {
             let duration = song.duration_formatted();
             let content = vec![Line::from(vec![

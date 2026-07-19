@@ -1,11 +1,15 @@
 #[derive(Clone, Debug)]
 pub struct QueueViewState {
     pub queue_selected: usize,
+    pub scroll_offset: usize,
 }
 
 impl QueueViewState {
     pub fn new() -> Self {
-        Self { queue_selected: 0 }
+        Self {
+            queue_selected: 0,
+            scroll_offset: 0,
+        }
     }
 }
 
