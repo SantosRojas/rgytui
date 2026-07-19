@@ -4,12 +4,13 @@ use std::time::Duration;
 
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
 
+use crate::application::ports::AudioPlaybackPort;
 use crate::domain::error::DomainError;
 use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
 use crate::infrastructure::audio::spectrum::{SpectrumFrame, SpectrumSource};
 
-pub struct RodioBackend {
+pub struct RodioAdapter {
     _handle: rodio::MixerDeviceSink,
     player: Player,
     state: Arc<Mutex<PlayerState>>,
@@ -20,7 +21,7 @@ pub struct RodioBackend {
     spectrum: Arc<Mutex<SpectrumFrame>>,
 }
 
-impl RodioBackend {
+impl RodioAdapter {
     pub fn new() -> Result<Self, DomainError> {
         let mut handle = DeviceSinkBuilder::open_default_sink()
             .map_err(|e| DomainError::Audio(format!("Cannot open audio output: {}", e)))?;
@@ -137,6 +138,7 @@ impl RodioBackend {
         *self.duration.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    #[allow(dead_code)]
     pub fn current_song(&self) -> Option<Song> {
         self.current_song.lock().ok().and_then(|s| s.clone())
     }
@@ -145,7 +147,62 @@ impl RodioBackend {
         self.player.empty()
     }
 
+    #[allow(dead_code)]
     pub fn has_sink(&self) -> bool {
         !self.player.empty()
+    }
+}
+
+impl AudioPlaybackPort for RodioAdapter {
+    fn play_file(&mut self, path: &Path, song: Song) -> Result<(), DomainError> {
+        self.play_file(path, song)
+    }
+
+    fn play_bytes(&mut self, data: Vec<u8>, song: Song) -> Result<(), DomainError> {
+        self.play_bytes(data, song)
+    }
+
+    fn pause(&mut self) -> Result<(), DomainError> {
+        self.pause()
+    }
+
+    fn resume(&mut self) -> Result<(), DomainError> {
+        self.resume()
+    }
+
+    fn stop(&mut self) -> Result<(), DomainError> {
+        self.stop()
+    }
+
+    fn set_volume(&mut self, vol: f32) {
+        self.set_volume(vol);
+    }
+
+    fn volume(&self) -> f32 {
+        self.volume()
+    }
+
+    fn state(&self) -> PlayerState {
+        self.state()
+    }
+
+    fn current_position(&self) -> f64 {
+        self.current_position()
+    }
+
+    fn current_duration(&self) -> f64 {
+        self.current_duration()
+    }
+
+    fn is_sink_empty(&self) -> bool {
+        self.is_sink_empty()
+    }
+
+    fn has_sink(&self) -> bool {
+        self.has_sink()
+    }
+
+    fn get_spectrum(&self) -> SpectrumFrame {
+        self.get_spectrum()
     }
 }

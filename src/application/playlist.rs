@@ -46,6 +46,7 @@ impl PlaylistUseCase {
         self.playlist.len()
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.playlist.is_empty()
     }

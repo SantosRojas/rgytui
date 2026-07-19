@@ -1,14 +1,16 @@
+use std::sync::Arc;
+
+use crate::application::ports::MediaSearchPort;
 use crate::domain::error::DomainError;
 use crate::domain::media::Song;
-use crate::infrastructure::ytdlp::client::YtDlpClient;
 
 #[derive(Clone)]
 pub struct SearchUseCase {
-    client: YtDlpClient,
+    client: Arc<dyn MediaSearchPort>,
 }
 
 impl SearchUseCase {
-    pub fn new(client: YtDlpClient) -> Self {
+    pub fn new(client: Arc<dyn MediaSearchPort>) -> Self {
         Self { client }
     }
 

@@ -28,7 +28,9 @@ fn dim_color(color: Color, factor: f32) -> Color {
 #[derive(Clone, Copy, Debug)]
 pub struct Theme {
     pub accent: Color,
+    #[allow(dead_code)]
     pub accent_dim: Color,
+    #[allow(dead_code)]
     pub bg: Color,
     pub text: Color,
     pub text_secondary: Color,

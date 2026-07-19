@@ -7,15 +7,11 @@ use num_complex::Complex;
 use rodio::Source;
 use rustfft::{Fft, FftPlanner};
 
-const FFT_SIZE: usize = 256;
-pub const BANDS: usize = 32;
-const NUM_BINS: usize = FFT_SIZE / 2;
+// Re-export types moved to shared::spectrum for backward compatibility.
+pub use crate::shared::spectrum::{BANDS, SpectrumFrame};
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct SpectrumFrame {
-    pub bands: [f32; BANDS],
-    pub peaks: [f32; BANDS],
-}
+const FFT_SIZE: usize = 256;
+const NUM_BINS: usize = FFT_SIZE / 2;
 
 fn hann_window() -> &'static [f32; FFT_SIZE] {
     static WINDOW: OnceLock<[f32; FFT_SIZE]> = OnceLock::new();

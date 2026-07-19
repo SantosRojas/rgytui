@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
 
 use crate::domain::player_state::PlayerState;
-use crate::infrastructure::audio::AudioMode;
+use crate::domain::audio_mode::AudioMode;
 use crate::interface::i18n::Translations;
 use crate::interface::state::Focus;
 use crate::interface::theme::Theme;

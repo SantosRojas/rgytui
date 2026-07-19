@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
 
-use crate::application::ports::MediaSearchPort;
+use crate::application::ports::{DownloaderPort, MediaSearchPort};
 use crate::domain::error::DomainError;
 use crate::domain::media::{RawSong, Song};
 use tokio::process::Command;
@@ -14,11 +14,11 @@ type SearchCache = HashMap<String, (Vec<Song>, Instant)>;
 const SEARCH_CACHE_TTL: Duration = Duration::from_secs(60);
 
 #[derive(Clone)]
-pub struct YtDlpClient {
+pub struct YtDlpAdapter {
     search_cache: Arc<Mutex<SearchCache>>,
 }
 
-impl YtDlpClient {
+impl YtDlpAdapter {
     pub fn new() -> Self {
         Self {
             search_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -182,6 +182,7 @@ impl YtDlpClient {
         Ok(filepath)
     }
 
+    #[allow(dead_code)]
     pub async fn get_metadata(&self, url: &str) -> Result<Song, DomainError> {
         let output = tokio::time::timeout(
             Duration::from_secs(30),
@@ -210,12 +211,55 @@ impl YtDlpClient {
     }
 }
 
-impl MediaSearchPort for YtDlpClient {
+#[async_trait::async_trait]
+impl MediaSearchPort for YtDlpAdapter {
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<Song>, DomainError> {
         self.search(query, limit).await
     }
 
     async fn get_stream_url(&self, url: &str, audio_only: bool) -> Result<String, DomainError> {
         self.get_stream_url(url, audio_only).await
+    }
+}
+
+#[async_trait::async_trait]
+impl DownloaderPort for YtDlpAdapter {
+    async fn get_stream_url(&self, url: &str, audio_only: bool) -> Result<String, DomainError> {
+        self.get_stream_url(url, audio_only).await
+    }
+
+    async fn download_audio_bytes(&self, url: &str) -> Result<Vec<u8>, DomainError> {
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            tokio::process::Command::new("yt-dlp")
+                .arg("-f")
+                .arg("bestaudio[ext=m4a]/bestaudio/best")
+                .arg("-o")
+                .arg("-")
+                .arg("--no-playlist")
+                .arg(url)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .output(),
+        )
+        .await
+            .map_err(|_| DomainError::YtDlp("Audio download timed out after 120s".into()))?
+            .map_err(|e| DomainError::YtDlp(format!("Failed to run yt-dlp: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(DomainError::YtDlp(format!("Audio download failed: {}", stderr)));
+        }
+
+        Ok(output.stdout)
+    }
+
+    async fn download(
+        &self,
+        url: &str,
+        output_dir: &str,
+        audio_format: &str,
+    ) -> Result<String, DomainError> {
+        self.download(url, output_dir, audio_format).await
     }
 }

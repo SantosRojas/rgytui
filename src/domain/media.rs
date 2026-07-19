@@ -136,6 +136,7 @@ impl Playlist {
         self.songs.len()
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.songs.is_empty()
     }
@@ -150,6 +151,7 @@ impl Playlist {
         }
     }
 
+    #[allow(dead_code)]
     pub fn insert(&mut self, index: usize, song: Song) {
         if index <= self.songs.len() {
             self.songs.insert(index, song);

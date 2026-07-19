@@ -5,13 +5,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, BorderType, Clear, List, ListItem, Paragraph};
 use ratatui::Frame;
 
-use crate::infrastructure::audio::AudioMode;
+use crate::domain::audio_mode::AudioMode;
 use crate::interface::components::status_bar::StatusBar;
 use crate::interface::screens::{help_screen, player_screen, search_screen, settings_screen};
 use crate::interface::state::{ActiveScreen, Focus, NotificationLevel, UiState};
 use crate::interface::theme::Theme;
-
-const QUEUE_VISIBLE: usize = 5;
 
 pub fn render(frame: &mut Frame, state: &UiState, audio_mode: AudioMode, theme: &Theme) {
     let chunks = Layout::default()

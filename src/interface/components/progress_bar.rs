@@ -29,6 +29,7 @@ impl ProgressBar {
         }
     }
 
+    #[allow(dead_code)]
     pub fn block(mut self, block: Block<'static>) -> Self {
         self.block = Some(block);
         self

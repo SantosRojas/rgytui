@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
-use crate::infrastructure::audio::spectrum::SpectrumFrame;
+use crate::shared::spectrum::SpectrumFrame;
 use crate::interface::i18n::Translations;
 use crate::interface::theme::Theme;
 
@@ -108,6 +108,7 @@ impl UiState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn volume_bar(&self) -> String {
         let vol = self.volume.clamp(0.0, 1.0);
         let filled = (vol * 20.0) as usize;

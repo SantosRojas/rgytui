@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod app;
 mod application;
 mod domain;
@@ -7,17 +5,20 @@ mod infrastructure;
 mod interface;
 mod shared;
 
+use std::sync::Arc;
+
 use anyhow::Context;
 use tracing_subscriber::EnvFilter;
 
 use crate::app::App;
 use crate::application::playback::PlaybackUseCase;
 use crate::application::playlist::PlaylistUseCase;
+use crate::application::ports::{AudioPlaybackPort, ConfigPort, DownloaderPort, MediaSearchPort};
 use crate::application::search::SearchUseCase;
-use crate::infrastructure::audio::mpv_backend::MpvBackend;
-use crate::infrastructure::audio::rodio_backend::RodioBackend;
-use crate::infrastructure::config::store::ConfigStore;
-use crate::infrastructure::ytdlp::client::YtDlpClient;
+use crate::infrastructure::audio::mpv_backend::MpvAdapter;
+use crate::infrastructure::audio::rodio_backend::RodioAdapter;
+use crate::infrastructure::config::store::ConfigAdapter;
+use crate::infrastructure::ytdlp::client::YtDlpAdapter;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -27,21 +28,25 @@ async fn main() -> Result<(), anyhow::Error> {
         )
         .init();
 
-    let config = ConfigStore::new().context("Failed to load config")?;
-    let ytdlp = YtDlpClient::new();
-    let audio = RodioBackend::new().context("Failed to initialize audio output")?;
-    let mpv = MpvBackend::new();
+    let config = ConfigAdapter::new().await.context("Failed to load config")?;
+    let ytdlp = YtDlpAdapter::new();
+    let audio: Box<dyn AudioPlaybackPort> = Box::new(RodioAdapter::new().context("Failed to initialize audio output")?);
+    let mpv = MpvAdapter::new();
 
     let mut playlist = PlaylistUseCase::new();
-    let saved = config.load_playlist();
+    let saved = config.load_playlist().await;
     for song in saved.songs {
         playlist.add(song);
     }
 
-    let playback = PlaybackUseCase::new(ytdlp, audio, mpv);
-    let search = SearchUseCase::new(YtDlpClient::new());
+    let downloader_port: Arc<dyn DownloaderPort> = Arc::new(ytdlp.clone());
+    let search_port: Arc<dyn MediaSearchPort> = Arc::new(ytdlp);
 
-    let mut app = App::new(playback, search, playlist, config);
+    let playback = PlaybackUseCase::new(downloader_port, audio, mpv);
+    let search = SearchUseCase::new(search_port);
+    let config_port: Box<dyn ConfigPort> = Box::new(config);
+
+    let mut app = App::new(playback, search, playlist, config_port).await;
 
     match app.run().await {
         Ok(()) => {

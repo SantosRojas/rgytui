@@ -5,9 +5,6 @@ pub enum DomainError {
     #[error("yt-dlp error: {0}")]
     YtDlp(String),
 
-    #[error("Network error: {0}")]
-    Network(String),
-
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -30,8 +27,4 @@ impl From<serde_json::Error> for DomainError {
     }
 }
 
-impl From<reqwest::Error> for DomainError {
-    fn from(e: reqwest::Error) -> Self {
-        DomainError::Network(e.to_string())
-    }
-}
+
