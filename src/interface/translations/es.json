@@ -3,7 +3,7 @@
   "help_title": "Atajos de Teclado",
   "help_block_title": "Ayuda",
   "help_nav": "Navegación",
-  "help_nav_tab": "  Tab        Cambiar foco entre paneles",
+  "help_nav_tab": "  Tab/Shift+Tab  Ciclar foco adelante/atrás",
   "help_nav_updown": "  ↑/↓/j/k    Navegar lista",
   "help_nav_jk": "  j/k        Navegar lista arriba/abajo",
   "help_nav_gg": "  g/G        Ir al inicio/final",

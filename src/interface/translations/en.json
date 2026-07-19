@@ -3,7 +3,7 @@
   "help_title": "Keyboard Shortcuts",
   "help_block_title": "Help",
   "help_nav": "Navigation",
-  "help_nav_tab": "  Tab        Switch focus between panels",
+  "help_nav_tab": "  Tab/Shift+Tab  Cycle focus forward/backward",
   "help_nav_updown": "  ↑/↓/j/k    Navigate list",
   "help_nav_jk": "  j/k        Navigate list up/down",
   "help_nav_gg": "  g/G        Go to top/bottom",
