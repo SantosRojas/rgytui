@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use tokio::sync::{mpsc, Semaphore};
 
 use crate::application::playback::PlaybackUseCase;
@@ -178,8 +178,128 @@ impl App {
         Ok(())
     }
 
-    fn handle_mouse(&mut self, _event: MouseEvent) {
-        // Will be implemented in WU4 — mouse click and scroll support.
+    fn handle_mouse(&mut self, event: MouseEvent) {
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let col = event.column;
+                let row = event.row;
+                let rects = self.ui.panel_rects.borrow();
+
+                // Check search input — click to focus
+                if let Some(rect) = rects.get("search_input") {
+                    if row >= rect.y && row < rect.y + rect.height
+                        && col >= rect.x && col < rect.x + rect.width
+                    {
+                        self.ui.active_screen = ActiveScreen::Search;
+                        self.ui.focus = Focus::SearchInput;
+                        return;
+                    }
+                }
+
+                // Check search results — click to select + focus
+                if let Some(rect) = rects.get("search_results") {
+                    if row >= rect.y && row < rect.y + rect.height
+                        && col >= rect.x && col < rect.x + rect.width
+                    {
+                        self.ui.active_screen = ActiveScreen::Search;
+                        self.ui.focus = Focus::SearchResults;
+
+                        // Resolve click Y coordinate to list index,
+                        // matching the render-time scroll offset logic
+                        let visible_height = (rect.height.saturating_sub(2)) as usize;
+                        if visible_height > 0 && row >= rect.y + 1 {
+                            let relative_row = (row - rect.y - 1) as usize;
+                            if relative_row < visible_height {
+                                let item_count = self.ui.search.search_results.len();
+                                let offset = if item_count > visible_height {
+                                    self.ui.search.selected_index
+                                        .min(item_count.saturating_sub(visible_height))
+                                } else {
+                                    0
+                                };
+                                let idx = offset + relative_row;
+                                if idx < item_count {
+                                    self.ui.search.selected_index = idx;
+                                }
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                // Check queue — click to select + focus
+                if let Some(rect) = rects.get("queue") {
+                    if row >= rect.y && row < rect.y + rect.height
+                        && col >= rect.x && col < rect.x + rect.width
+                    {
+                        self.ui.active_screen = ActiveScreen::Search;
+                        self.ui.focus = Focus::QueueList;
+
+                        let visible_height = (rect.height.saturating_sub(2)) as usize;
+                        if visible_height > 0 && row >= rect.y + 1 {
+                            let relative_row = (row - rect.y - 1) as usize;
+                            if relative_row < visible_height {
+                                let item_count = self.playlist.songs().len();
+                                let offset = if item_count > visible_height {
+                                    self.ui.queue.queue_selected
+                                        .min(item_count.saturating_sub(visible_height))
+                                } else {
+                                    0
+                                };
+                                let idx = offset + relative_row;
+                                if idx < item_count {
+                                    self.ui.queue.queue_selected = idx;
+                                }
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                // Click outside any panel — silently ignored
+            }
+            MouseEventKind::ScrollDown => {
+                self.handle_scroll_down();
+            }
+            MouseEventKind::ScrollUp => {
+                self.handle_scroll_up();
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_scroll_up(&mut self) {
+        match self.ui.focus {
+            Focus::SearchResults => {
+                self.ui.search.selected_index = self.ui.search.selected_index.saturating_sub(1);
+            }
+            Focus::QueueList => {
+                self.ui.queue.queue_selected = self.ui.queue.queue_selected.saturating_sub(1);
+            }
+            Focus::SearchInput => {
+                // Scroll wheel on search input — cycle focus to results
+                self.ui.focus = Focus::SearchResults;
+            }
+        }
+    }
+
+    fn handle_scroll_down(&mut self) {
+        match self.ui.focus {
+            Focus::SearchResults => {
+                self.ui.search.selected_index = (self.ui.search.selected_index + 1)
+                    .min(self.ui.search.search_results.len().saturating_sub(1));
+            }
+            Focus::QueueList => {
+                if !self.playlist.songs().is_empty() {
+                    self.ui.queue.queue_selected = (self.ui.queue.queue_selected + 1)
+                        .min(self.playlist.songs().len().saturating_sub(1));
+                }
+            }
+            Focus::SearchInput => {
+                // Scroll wheel on search input — cycle focus to results
+                self.ui.focus = Focus::SearchResults;
+            }
+        }
     }
 
 }

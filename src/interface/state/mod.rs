@@ -15,6 +15,10 @@ pub use render::*;
 pub use search::*;
 pub use settings::*;
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use ratatui::layout::Rect;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ActiveScreen {
     Search,
@@ -41,6 +45,7 @@ pub struct UiState {
     pub notifications: NotificationState,
     pub player: PlayerViewState,
     pub queue: QueueViewState,
+    pub panel_rects: RefCell<HashMap<String, Rect>>,
 }
 
 impl UiState {
@@ -89,6 +94,7 @@ impl Default for UiState {
             notifications: NotificationState::default(),
             player: PlayerViewState::default(),
             queue: QueueViewState::default(),
+            panel_rects: RefCell::new(HashMap::new()),
         }
     }
 }

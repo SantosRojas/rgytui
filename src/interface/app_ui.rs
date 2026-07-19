@@ -44,6 +44,26 @@ pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, the
             player_screen::render(frame, main_area, state, snapshot, theme);
         }
         ActiveScreen::Search => {
+            // Store panel rects for mouse click resolution
+            let hybrid_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Ratio(35, 100), Constraint::Ratio(65, 100)])
+                .split(main_area);
+
+            let left_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Ratio(50, 100), Constraint::Ratio(50, 100)])
+                .split(hybrid_chunks[0]);
+
+            let right_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(1)])
+                .split(hybrid_chunks[1]);
+
+            state.panel_rects.borrow_mut().insert("queue".to_string(), left_chunks[1]);
+            state.panel_rects.borrow_mut().insert("search_input".to_string(), right_chunks[0]);
+            state.panel_rects.borrow_mut().insert("search_results".to_string(), right_chunks[1]);
+
             render_hybrid(frame, main_area, state, snapshot, theme);
         }
     }
