@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
 use tokio::sync::{mpsc, Semaphore};
 
 use crate::application::playback::PlaybackUseCase;
@@ -16,6 +16,7 @@ use crate::interface::app_ui;
 use crate::interface::i18n::Translations;
 pub(crate) use crate::interface::state::{ActiveScreen, ConfigState, Focus, NotificationLevel, RenderSnapshot, UiState};
 pub(crate) use crate::shared::event::AppEvent;
+use crate::shared::event::InputEvent;
 
 pub mod lifecycle;
 pub mod sync;
@@ -32,7 +33,7 @@ pub struct App {
     playlist: PlaylistUseCase,
     config: Box<dyn ConfigPort>,
     settings: AppSettings,
-    keyboard_rx: mpsc::UnboundedReceiver<KeyEvent>,
+    input_rx: mpsc::UnboundedReceiver<InputEvent>,
     event_tx: mpsc::UnboundedSender<AppEvent>,
     event_rx: mpsc::UnboundedReceiver<AppEvent>,
     pending_play: Option<Song>,
@@ -48,21 +49,29 @@ impl App {
         config: Box<dyn ConfigPort>,
     ) -> Self {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
-        let (kb_tx, keyboard_rx) = mpsc::unbounded_channel();
+        let (input_tx, input_rx) = mpsc::unbounded_channel();
 
         std::thread::spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| loop {
-                if let Ok(crossterm::event::Event::Key(key)) = crossterm::event::read() {
-                    if key.kind != KeyEventKind::Press {
-                        continue;
+                match crossterm::event::read() {
+                    Ok(crossterm::event::Event::Key(key)) => {
+                        if key.kind != KeyEventKind::Press {
+                            continue;
+                        }
+                        if input_tx.send(InputEvent::Key(key)).is_err() {
+                            break;
+                        }
                     }
-                    if kb_tx.send(key).is_err() {
-                        break;
+                    Ok(crossterm::event::Event::Mouse(mouse)) => {
+                        if input_tx.send(InputEvent::Mouse(mouse)).is_err() {
+                            break;
+                        }
                     }
+                    _ => {}
                 }
             }));
             if let Err(e) = result {
-                tracing::error!("Keyboard thread panicked: {:?}", e);
+                tracing::error!("Input thread panicked: {:?}", e);
             }
         });
 
@@ -97,7 +106,7 @@ impl App {
             playlist,
             config,
             settings,
-            keyboard_rx,
+            input_rx,
             event_tx,
             event_rx,
             pending_play: None,
@@ -131,12 +140,20 @@ impl App {
             }
 
             let should_exit = tokio::select! {
-                Some(key) = self.keyboard_rx.recv() => {
-                    match self.handle_key(key).await {
-                        Ok(true) => true,
-                        Ok(false) => false,
-                        Err(e) => {
-                            self.ui.push_notification(self.ui.tr("err_generic").replace("{}", &e.to_string()), NotificationLevel::Error);
+                Some(input) = self.input_rx.recv() => {
+                    match input {
+                        InputEvent::Key(key) => {
+                            match self.handle_key(key).await {
+                                Ok(true) => true,
+                                Ok(false) => false,
+                                Err(e) => {
+                                    self.ui.push_notification(self.ui.tr("err_generic").replace("{}", &e.to_string()), NotificationLevel::Error);
+                                    false
+                                }
+                            }
+                        }
+                        InputEvent::Mouse(mouse) => {
+                            self.handle_mouse(mouse);
                             false
                         }
                     }
@@ -159,6 +176,10 @@ impl App {
         }
 
         Ok(())
+    }
+
+    fn handle_mouse(&mut self, _event: MouseEvent) {
+        // Will be implemented in WU4 — mouse click and scroll support.
     }
 
 }

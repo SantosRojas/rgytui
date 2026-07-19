@@ -1,4 +1,12 @@
+use crossterm::event::{KeyEvent, MouseEvent};
+
 use crate::domain::media::Song;
+
+#[derive(Clone, Debug)]
+pub enum InputEvent {
+    Key(KeyEvent),
+    Mouse(MouseEvent),
+}
 
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
