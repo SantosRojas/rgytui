@@ -34,7 +34,6 @@ pub fn render(frame: &mut Frame, area: Rect, translations: &Translations, theme:
         ]),
         Line::from(Span::styled(t("help_playback_enter"), key_style)),
         Line::from(Span::styled(t("help_playback_space"), key_style)),
-        Line::from(Span::styled(t("help_playback_s"), key_style)),
         Line::from(Span::styled(t("help_playback_n"), key_style)),
         Line::from(Span::styled(t("help_playback_p"), key_style)),
         Line::from(Span::styled(t("help_playback_vol"), key_style)),
@@ -56,7 +55,7 @@ pub fn render(frame: &mut Frame, area: Rect, translations: &Translations, theme:
             Span::styled(t("help_general"), section_style),
         ]),
         Line::from(Span::styled(t("help_general_esc"), key_style)),
-        Line::from(Span::styled(t("help_general_question"), key_style)),
+        Line::from(Span::styled(t("help_general_h"), key_style)),
         Line::from(Span::styled(t("help_general_q"), key_style)),
         Line::from(Span::styled(t("help_general_ctrlq"), key_style)),
         Line::from(""),
@@ -70,7 +69,7 @@ pub fn render(frame: &mut Frame, area: Rect, translations: &Translations, theme:
             Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .title(format!(" ❓ {} ", t("help_block_title")))
+                .title(format!(" 📖 {} ", t("help_block_title")))
                 .border_style(Style::default().fg(theme.accent)),
         )
         .alignment(Alignment::Left);

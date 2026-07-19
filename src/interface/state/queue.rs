@@ -1,6 +1,7 @@
 #[derive(Clone, Debug)]
 pub struct QueueViewState {
     pub queue_selected: usize,
+    #[allow(dead_code)]
     pub scroll_offset: usize,
 }
 

@@ -23,14 +23,6 @@ impl App {
 
         // Global toggle keys
         match key.code {
-            KeyCode::Char('?') => {
-                self.ui.active_screen = if self.ui.active_screen == ActiveScreen::Help {
-                    ActiveScreen::Search
-                } else {
-                    ActiveScreen::Help
-                };
-                return Ok(false);
-            }
             KeyCode::Esc => {
                 match self.ui.active_screen {
                     ActiveScreen::Help | ActiveScreen::Settings | ActiveScreen::Player => {
@@ -110,7 +102,7 @@ impl App {
                 self.ui.active_screen = ActiveScreen::Search;
                 Ok(false)
             }
-            KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('h') => {
+            KeyCode::Esc | KeyCode::Char('h') => {
                 self.ui.active_screen = ActiveScreen::Search;
                 Ok(false)
             }
@@ -246,16 +238,6 @@ impl App {
                 }
                 _ => {}
             },
-            KeyCode::Char('s') => {
-                self.pending_play = None;
-                if let Err(e) = self.playback.stop() {
-                    tracing::warn!("Failed to stop playback: {}", e);
-                }
-                self.ui.push_notification(
-                    self.ui.tr("notif_stopped"),
-                    NotificationLevel::Info,
-                );
-            }
             KeyCode::Char('n') => {
                 if let Some(next) = self.playlist.next().cloned() {
                     self.queue_play(next);
@@ -289,7 +271,7 @@ impl App {
                 self.ui.active_screen = ActiveScreen::Search;
                 self.ui.focus = Focus::SearchInput;
             }
-            KeyCode::Char('t') => {
+            KeyCode::Char('s') => {
                 self.ui.active_screen = ActiveScreen::Settings;
                 self.ui.focus = Focus::SearchInput;
             }
@@ -504,16 +486,6 @@ impl App {
                     self.schedule_play_selected();
                 }
             },
-            KeyCode::Char('s') => {
-                self.pending_play = None;
-                if let Err(e) = self.playback.stop() {
-                    tracing::warn!("Failed to stop playback: {}", e);
-                }
-                self.ui.push_notification(
-                    self.ui.tr("notif_stopped"),
-                    NotificationLevel::Info,
-                );
-            }
             KeyCode::Char('n') => {
                 if let Some(next) = self.playlist.next().cloned() {
                     self.queue_play(next);
@@ -599,7 +571,7 @@ impl App {
                     self.playlist.clear();
                 }
             }
-            KeyCode::Char('t') => {
+            KeyCode::Char('s') => {
                 self.ui.active_screen = ActiveScreen::Settings;
                 self.ui.focus = Focus::SearchInput;
             }

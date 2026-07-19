@@ -905,7 +905,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_help_question_closes_help() {
+    async fn test_help_question_ignored() {
         let mut app = match build_test_app().await {
             Some(a) => a,
             None => return,
@@ -913,7 +913,7 @@ mod tests {
         app.ui.active_screen = ActiveScreen::Help;
 
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.active_screen, ActiveScreen::Search, "? in help should close to Search");
+        assert_eq!(app.ui.active_screen, ActiveScreen::Help, "? should be silently ignored (only h opens help)");
     }
 
     #[tokio::test]
