@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rayon::prelude::*;
+
 
 use crate::application::ports::{DownloaderPort, MediaSearchPort};
 use crate::domain::error::DomainError;
@@ -69,11 +69,11 @@ impl YtDlpAdapter {
             )));
         }
 
-        // Parse JSON lines in parallel with rayon
+        // Parse JSON lines from yt-dlp output
         let stdout = std::str::from_utf8(&output.stdout)
             .map_err(|e| DomainError::Parse(format!("Invalid UTF-8: {}", e)))?;
         let songs: Vec<Song> = stdout
-            .par_lines()
+            .lines()
             .filter_map(|line| {
                 let line = line.trim();
                 if line.is_empty() {
