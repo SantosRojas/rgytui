@@ -4,13 +4,21 @@ impl App {
     pub(crate) fn spawn_search(&self, query: String, limit: usize) {
         let tx = self.event_tx.clone();
         let search_uc = self.search.clone();
+        let token = self.cancel_token.clone();
         tokio::spawn(async move {
-            match search_uc.execute(&query, limit).await {
-                Ok(songs) => {
-                    let _ = tx.send(AppEvent::SearchResults(songs));
+            tokio::select! {
+                result = search_uc.execute(&query, limit) => {
+                    match result {
+                        Ok(songs) => {
+                            let _ = tx.send(AppEvent::SearchResults(songs));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppEvent::SearchError(e.to_string()));
+                        }
+                    }
                 }
-                Err(e) => {
-                    let _ = tx.send(AppEvent::SearchError(e.to_string()));
+                _ = token.cancelled() => {
+                    // Task cancelled — drop silently
                 }
             }
         });
@@ -44,14 +52,21 @@ impl App {
                     let tx = self.event_tx.clone();
                     let url = song.webpage_url.clone();
                     let song_for_event = song.clone();
+                    let token = self.cancel_token.clone();
                     tokio::spawn(async move {
-                        match PlaybackUseCase::download_audio_bytes(url).await {
-                            Ok(data) => {
-                                let _ =
-                                    tx.send(AppEvent::AudioReady { song: song_for_event, data });
+                        tokio::select! {
+                            result = PlaybackUseCase::download_audio_bytes(url) => {
+                                match result {
+                                    Ok(data) => {
+                                        let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data });
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(AppEvent::AudioDownloadError(e.to_string()));
+                                    }
+                                }
                             }
-                            Err(e) => {
-                                let _ = tx.send(AppEvent::AudioDownloadError(e.to_string()));
+                            _ = token.cancelled() => {
+                                // Task cancelled — drop silently
                             }
                         }
                     });
@@ -70,20 +85,30 @@ impl App {
             let tx = self.event_tx.clone();
             let ytdlp = self.playback.downloader_clone();
             let sem = self.download_semaphore.clone();
+            let token = self.cancel_token.clone();
             tokio::spawn(async move {
                 let _permit = sem.acquire().await;
-                if let Err(e) = tokio::fs::create_dir_all(&dir).await {
-                    tracing::warn!("Failed to create download directory: {}", e);
-                }
-                match ytdlp.download(&song.webpage_url, &dir, &fmt).await {
-                    Ok(path) => {
-                        let _ = tx.send(AppEvent::DownloadComplete {
-                            song_title: song_title_clone,
-                            file_path: path,
-                        });
+                tokio::select! {
+                    _ = token.cancelled() => {
+                        // Task cancelled — drop silently
                     }
-                    Err(e) => {
-                        let _ = tx.send(AppEvent::DownloadError(e.to_string()));
+                    result = async {
+                        if let Err(e) = tokio::fs::create_dir_all(&dir).await {
+                            tracing::warn!("Failed to create download directory: {}", e);
+                        }
+                        ytdlp.download(&song.webpage_url, &dir, &fmt).await
+                    } => {
+                        match result {
+                            Ok(path) => {
+                                let _ = tx.send(AppEvent::DownloadComplete {
+                                    song_title: song_title_clone,
+                                    file_path: path,
+                                });
+                            }
+                            Err(e) => {
+                                let _ = tx.send(AppEvent::DownloadError(e.to_string()));
+                            }
+                        }
                     }
                 }
             });

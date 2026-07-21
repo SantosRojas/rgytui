@@ -21,6 +21,9 @@ impl App {
     }
 
     pub(crate) async fn on_exit(&mut self) {
+        // Signal cancellation to all spawned background tasks
+        self.cancel_token.cancel();
+
         if let Err(e) = self.playback.stop() {
             tracing::warn!("Failed to stop playback on exit: {}", e);
         }
