@@ -59,7 +59,7 @@ pub trait ConfigPort: Send {
 
 /// Port for i18n / translations.
 #[allow(dead_code)]
-pub trait I18nPort: Send {
+pub trait I18nPort: Send + std::fmt::Debug {
     fn t(&self, key: &str) -> String;
     fn language(&self) -> &str;
 }
@@ -312,6 +312,7 @@ mod tests {
 
     // ── Mock: I18nPort ──
 
+    #[derive(Debug)]
     struct MockI18n;
 
     impl I18nPort for MockI18n {

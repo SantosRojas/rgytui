@@ -13,12 +13,13 @@ use tracing_subscriber::EnvFilter;
 use crate::app::App;
 use crate::application::playback::PlaybackUseCase;
 use crate::application::playlist::PlaylistUseCase;
-use crate::application::ports::{AudioPlaybackPort, ConfigPort, DownloaderPort, MediaSearchPort};
+use crate::application::ports::{AudioPlaybackPort, ConfigPort, DownloaderPort, I18nPort, MediaSearchPort};
 use crate::application::search::SearchUseCase;
 use crate::infrastructure::audio::mpv_backend::MpvAdapter;
 use crate::infrastructure::audio::rodio_backend::RodioAdapter;
 use crate::infrastructure::config::store::ConfigAdapter;
 use crate::infrastructure::ytdlp::client::YtDlpAdapter;
+use crate::interface::i18n::Translations;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -29,6 +30,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .init();
 
     let config = ConfigAdapter::new().await.context("Failed to load config")?;
+    let settings = config.settings().clone();
     let ytdlp = YtDlpAdapter::new();
     let audio: Box<dyn AudioPlaybackPort> = Box::new(RodioAdapter::new().context("Failed to initialize audio output")?);
     let mpv = MpvAdapter::new();
@@ -46,7 +48,15 @@ async fn main() -> Result<(), anyhow::Error> {
     let search = SearchUseCase::new(search_port);
     let config_port: Box<dyn ConfigPort> = Box::new(config);
 
-    let mut app = App::new(playback, search, playlist, config_port).await;
+    // Determine language from settings, with system locale detection as default
+    let language = if settings.language == "en" {
+        Translations::detect_locale()
+    } else {
+        settings.language.clone()
+    };
+    let i18n: Arc<dyn I18nPort> = Arc::new(Translations::load(&language));
+
+    let mut app = App::new(playback, search, playlist, config_port, i18n).await;
 
     match app.run().await {
         Ok(()) => {

@@ -81,6 +81,10 @@ pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, the
         render_download_popup(frame, frame.area(), state, theme);
     }
 
+    if state.show_exit_confirmation {
+        render_exit_confirmation_popup(frame, frame.area(), state, theme);
+    }
+
     render_notifications(frame, frame.area(), state, theme);
 }
 
@@ -125,6 +129,44 @@ fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState, theme: 
         .highlight_symbol("▸");
 
     let popup_area = centered_rect(40, formats.len() as u16 + 2, area);
+    frame.render_widget(Clear, popup_area);
+    frame.render_widget(popup, popup_area);
+}
+
+fn render_exit_confirmation_popup(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
+    let confirm_text = vec![
+        Line::from(Span::styled(
+            state.tr("confirm_exit"),
+            Style::default().fg(theme.text),
+        )),
+        Line::from(Span::styled(
+            "",
+            Style::default(),
+        )),
+        Line::from(vec![
+            Span::styled("  [", Style::default().fg(theme.text_muted)),
+            Span::styled("y", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("] ", Style::default().fg(theme.text_muted)),
+            Span::styled(state.tr("yes"), Style::default().fg(theme.text_secondary)),
+            Span::styled("    [", Style::default().fg(theme.text_muted)),
+            Span::styled("n", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("] ", Style::default().fg(theme.text_muted)),
+            Span::styled(state.tr("no"), Style::default().fg(theme.text_secondary)),
+        ]),
+    ];
+
+    let popup = Paragraph::new(confirm_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title(format!(" {} ", state.tr("confirm_exit_title")))
+                .border_style(Style::default().fg(theme.warning))
+                .style(Style::default().bg(Color::Rgb(50, 45, 20))),
+        )
+        .alignment(ratatui::layout::Alignment::Center);
+
+    let popup_area = centered_rect(50, 5, area);
     frame.render_widget(Clear, popup_area);
     frame.render_widget(popup, popup_area);
 }

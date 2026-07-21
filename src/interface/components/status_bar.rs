@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
 
+use crate::application::ports::I18nPort;
 use crate::domain::player_state::PlayerState;
 use crate::domain::audio_mode::AudioMode;
 use crate::interface::i18n::Translations;
@@ -15,7 +18,7 @@ pub struct StatusBar {
     audio_mode: AudioMode,
     volume: f32,
     focus: Focus,
-    translations: Translations,
+    translations: Arc<dyn I18nPort>,
     theme: Theme,
 }
 
@@ -26,7 +29,7 @@ impl StatusBar {
             audio_mode: AudioMode::Audio,
             volume: 0.8,
             focus: Focus::SearchInput,
-            translations: Translations::load("es"),
+            translations: Arc::new(Translations::load("es")) as Arc<dyn I18nPort>,
             theme: Theme::default(),
         }
     }
@@ -51,7 +54,7 @@ impl StatusBar {
         self
     }
 
-    pub fn translations(mut self, t: Translations) -> Self {
+    pub fn translations(mut self, t: Arc<dyn I18nPort>) -> Self {
         self.translations = t;
         self
     }

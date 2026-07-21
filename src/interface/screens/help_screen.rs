@@ -4,10 +4,10 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, BorderType, Paragraph};
 use ratatui::Frame;
 
-use crate::interface::i18n::Translations;
+use crate::application::ports::I18nPort;
 use crate::interface::theme::Theme;
 
-pub fn render(frame: &mut Frame, area: Rect, translations: &Translations, theme: &Theme) {
+pub fn render(frame: &mut Frame, area: Rect, translations: &dyn I18nPort, theme: &Theme) {
     let t = |k: &str| translations.t(k);
 
     let section_style = Style::default().fg(theme.accent).add_modifier(Modifier::BOLD);

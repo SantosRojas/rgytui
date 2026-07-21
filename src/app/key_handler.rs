@@ -7,12 +7,31 @@ use crate::interface::i18n::Translations;
 impl App {
     #[allow(clippy::collapsible_match)]
     pub(crate) async fn handle_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
+        // Handle exit confirmation response first
+        if self.ui.show_exit_confirmation {
+            return match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    self.ui.show_exit_confirmation = false;
+                    Ok(true)
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    self.ui.show_exit_confirmation = false;
+                    Ok(false)
+                }
+                _ => Ok(false),
+            };
+        }
+
         // Universal keys — always work regardless of screen or focus
         if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Ok(true);
         }
         // Ctrl+C — graceful exit (intercept before regular 'c' key dispatch)
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if self.pending_play.is_some() || self.ui.download.download_pending.is_some() {
+                let _ = self.event_tx.send(AppEvent::ShowConfirmExit);
+                return Ok(false);
+            }
             return Ok(true);
         }
 

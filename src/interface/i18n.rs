@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::application::ports::I18nPort;
+
 #[derive(Clone, Debug)]
 pub struct Translations {
     map: HashMap<String, String>,
@@ -54,6 +56,16 @@ impl Translations {
 
     pub fn t(&self, key: &str) -> String {
         self.map.get(key).cloned().unwrap_or_else(|| key.to_string())
+    }
+}
+
+impl I18nPort for Translations {
+    fn t(&self, key: &str) -> String {
+        self.t(key)
+    }
+
+    fn language(&self) -> &str {
+        &self.language
     }
 }
 

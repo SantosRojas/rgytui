@@ -43,6 +43,7 @@ pub struct UiState {
     pub settings: SettingsState,
     pub download: DownloadPopupState,
     pub notifications: NotificationState,
+    pub show_exit_confirmation: bool,
     pub player: PlayerViewState,
     pub queue: QueueViewState,
     pub panel_rects: RefCell<HashMap<String, Rect>>,
@@ -94,6 +95,7 @@ impl Default for UiState {
             notifications: NotificationState::default(),
             player: PlayerViewState::default(),
             queue: QueueViewState::default(),
+            show_exit_confirmation: false,
             panel_rects: RefCell::new(HashMap::new()),
         }
     }

@@ -3,10 +3,11 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use tokio::sync::{mpsc, Semaphore};
+use tokio_util::sync::CancellationToken;
 
 use crate::application::playback::PlaybackUseCase;
 use crate::application::playlist::PlaylistUseCase;
-pub(crate) use crate::application::ports::ConfigPort;
+pub(crate) use crate::application::ports::{ConfigPort, I18nPort};
 use crate::application::search::SearchUseCase;
 pub(crate) use crate::domain::audio_mode::AudioMode;
 pub(crate) use crate::domain::media::Song;
@@ -36,6 +37,7 @@ pub struct App {
     input_rx: mpsc::UnboundedReceiver<InputEvent>,
     event_tx: mpsc::UnboundedSender<AppEvent>,
     event_rx: mpsc::UnboundedReceiver<AppEvent>,
+    cancel_token: CancellationToken,
     pending_play: Option<Song>,
     last_search: Option<Instant>,
     download_semaphore: Arc<Semaphore>,
@@ -47,6 +49,7 @@ impl App {
         search: SearchUseCase,
         playlist: PlaylistUseCase,
         config: Box<dyn ConfigPort>,
+        i18n: Arc<dyn I18nPort>,
     ) -> Self {
         // Clean up orphan temp files from previous runs
         if let Err(e) = cleanup_orphan_tempfiles() {
@@ -84,13 +87,7 @@ impl App {
             tracing::warn!("Failed to load settings: {}, using defaults", e);
             AppSettings::default()
         });
-        // Use system locale detection by default; fall back to persisted language only
-        // if the user explicitly changed it from the default "en".
-        let language = if settings.language == "en" {
-            Translations::detect_locale()
-        } else {
-            settings.language.clone()
-        };
+        let language = i18n.language().to_string();
         let translations = Translations::load(&language);
         let ui = UiState {
             config: ConfigState::new(
@@ -114,6 +111,7 @@ impl App {
             input_rx,
             event_tx,
             event_rx,
+            cancel_token: CancellationToken::new(),
             pending_play: None,
             last_search: None,
             download_semaphore: Arc::new(Semaphore::new(3)),
@@ -176,6 +174,8 @@ impl App {
 
             if should_exit {
                 self.on_exit().await;
+                // Brief delay to let spawned tasks notice cancellation and drain
+                tokio::time::sleep(Duration::from_millis(100)).await;
                 break;
             }
         }
@@ -369,6 +369,7 @@ mod tests {
     use crate::infrastructure::audio::rodio_backend::RodioAdapter;
     use crate::infrastructure::config::store::ConfigAdapter;
     use crate::infrastructure::ytdlp::client::YtDlpAdapter;
+    use crate::interface::i18n::Translations;
 
     // Helper: create a file in the given directory with the given name
     fn create_file(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
@@ -449,7 +450,8 @@ mod tests {
         let search = SearchUseCase::new(search_port);
         let playlist = PlaylistUseCase::new();
         let config_port: Box<dyn ConfigPort> = Box::new(config);
-        Some(App::new(playback, search, playlist, config_port).await)
+        let i18n: Arc<dyn I18nPort> = Arc::new(Translations::load("es"));
+        Some(App::new(playback, search, playlist, config_port, i18n).await)
     }
 
     fn song(id: u32) -> Song {
@@ -467,6 +469,23 @@ mod tests {
         (0..count).map(song).collect()
     }
 
+    // ── CancellationToken (Task 2.1) ──────────────────────────────────
+
+    #[tokio::test]
+    async fn test_cancel_token_not_cancelled_after_creation() {
+        let app = match build_test_app().await {
+            Some(a) => a,
+            None => {
+                eprintln!("Skipping test: audio device not available");
+                return;
+            }
+        };
+        assert!(!app.cancel_token.is_cancelled(),
+            "CancellationToken should NOT be cancelled immediately after creation");
+    }
+
+    // ── Ctrl+C / Exit Confirmation (Task 2.3) ────────────────────────
+
     #[tokio::test]
     async fn test_ctrl_c_triggers_exit() {
         let mut app = match build_test_app().await {
@@ -479,7 +498,151 @@ mod tests {
 
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         let result = app.handle_key(ctrl_c).await.unwrap();
-        assert!(result, "Ctrl+C should return Ok(true) to signal exit");
+        assert!(result, "Ctrl+C should return Ok(true) to signal exit when no download active");
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_c_with_active_download_sends_confirm_event() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => {
+                eprintln!("Skipping test: audio device not available");
+                return;
+            }
+        };
+
+        // Set a pending play (simulates active download)
+        let song = Song {
+            id: "test-confirm-id".into(),
+            title: "Confirm Test".into(),
+            channel: "Test".into(),
+            duration: 100.0,
+            thumbnail: None,
+            webpage_url: "http://example.com".into(),
+        };
+        app.pending_play = Some(song);
+
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        let result = app.handle_key(ctrl_c).await.unwrap();
+        assert!(!result, "Ctrl+C with active download should NOT signal exit");
+
+        // The event is sent to the channel; event_handler will process it in the main loop.
+        // Try to receive it to verify it was sent (recv_timeout with zero delay = peek)
+        let event = app.event_rx.try_recv().ok();
+        assert!(matches!(event, Some(AppEvent::ShowConfirmExit)),
+            "key_handler should send ShowConfirmExit event, got {:?}", event);
+    }
+
+    #[tokio::test]
+    async fn test_ctrl_c_with_pending_download_shows_confirmation_via_event() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => {
+                eprintln!("Skipping test: audio device not available");
+                return;
+            }
+        };
+
+        // Set download_pending (simulates active file download)
+        let song = Song {
+            id: "test-dl-confirm".into(),
+            title: "DL Confirm".into(),
+            channel: "Test".into(),
+            duration: 100.0,
+            thumbnail: None,
+            webpage_url: "http://example.com".into(),
+        };
+        app.ui.download_pending = Some((song, "dir".into(), "mp3".into()));
+
+        assert!(!app.ui.show_exit_confirmation, "flag should be false before Ctrl+C");
+
+        // Process manually: key_handler sends event, event_handler processes it
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        let result = app.handle_key(ctrl_c).await.unwrap();
+        assert!(!result, "Ctrl+C with download_pending should NOT signal exit");
+
+        // The key_handler sent ShowConfirmExit to event_tx.
+        // Let's process it by calling handle_event directly on what was sent.
+        // Since we can't easily peek the channel, we manually set the flag
+        // to verify the event_handler handles it correctly.
+        app.handle_event(AppEvent::ShowConfirmExit);
+        assert!(app.ui.show_exit_confirmation, "flag should be true after ShowConfirmExit");
+    }
+
+    #[tokio::test]
+    async fn test_exit_confirmation_y_exits() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => {
+                eprintln!("Skipping test: audio device not available");
+                return;
+            }
+        };
+
+        app.ui.show_exit_confirmation = true;
+
+        // Press 'y' — should signal exit
+        let y_key = KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE);
+        let result = app.handle_key(y_key).await.unwrap();
+        assert!(result, "'y' in confirmation mode should signal exit");
+        assert!(!app.ui.show_exit_confirmation, "flag should be cleared after 'y'");
+    }
+
+    #[tokio::test]
+    async fn test_exit_confirmation_n_clears() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => {
+                eprintln!("Skipping test: audio device not available");
+                return;
+            }
+        };
+
+        app.ui.show_exit_confirmation = true;
+
+        // Press 'n' — should NOT signal exit, and clear flag
+        let n_key = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
+        let result = app.handle_key(n_key).await.unwrap();
+        assert!(!result, "'n' in confirmation mode should NOT signal exit");
+        assert!(!app.ui.show_exit_confirmation, "flag should be cleared after 'n'");
+    }
+
+    #[tokio::test]
+    async fn test_exit_confirmation_esc_clears() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => {
+                eprintln!("Skipping test: audio device not available");
+                return;
+            }
+        };
+
+        app.ui.show_exit_confirmation = true;
+
+        // Press Esc — should NOT signal exit, and clear flag
+        let esc_key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        let result = app.handle_key(esc_key).await.unwrap();
+        assert!(!result, "Esc in confirmation mode should NOT signal exit");
+        assert!(!app.ui.show_exit_confirmation, "flag should be cleared after Esc");
+    }
+
+    #[tokio::test]
+    async fn test_exit_confirmation_other_keys_ignored() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => {
+                eprintln!("Skipping test: audio device not available");
+                return;
+            }
+        };
+
+        app.ui.show_exit_confirmation = true;
+
+        // Press an unrelated key — should NOT signal exit, AND flag should persist
+        let space_key = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
+        let result = app.handle_key(space_key).await.unwrap();
+        assert!(!result, "unrelated key in confirmation mode should NOT signal exit");
+        assert!(app.ui.show_exit_confirmation, "flag should persist after unrelated key");
     }
 
     #[tokio::test]
