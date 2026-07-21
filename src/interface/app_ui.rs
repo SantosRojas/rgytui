@@ -35,7 +35,7 @@ pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, the
 
     match state.active_screen {
         ActiveScreen::Help => {
-            help_screen::render(frame, main_area, &state.config.translations, theme);
+            help_screen::render(frame, main_area, state.config.translations.as_ref(), theme);
         }
         ActiveScreen::Settings => {
             settings_screen::render(frame, main_area, state, snapshot, theme);

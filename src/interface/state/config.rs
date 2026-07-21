@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use crate::application::ports::I18nPort;
 use crate::interface::i18n::Translations;
 use crate::interface::theme::Theme;
 
@@ -6,7 +9,7 @@ pub struct ConfigState {
     pub theme_name: String,
     pub accent_color: String,
     pub language: String,
-    pub translations: Translations,
+    pub translations: Arc<dyn I18nPort>,
     cached_theme: Option<Theme>,
     pub default_search_limit: usize,
     pub download_path: String,
@@ -17,7 +20,7 @@ impl ConfigState {
         theme_name: String,
         accent_color: String,
         language: String,
-        translations: Translations,
+        translations: Arc<dyn I18nPort>,
         default_search_limit: usize,
         download_path: String,
     ) -> Self {
@@ -56,7 +59,7 @@ impl Default for ConfigState {
             theme_name: "dark".into(),
             accent_color: "#00ffff".into(),
             language: "es".into(),
-            translations: Translations::load("es"),
+            translations: Arc::new(Translations::load("es")),
             cached_theme: None,
             default_search_limit: 10,
             download_path: String::new(),

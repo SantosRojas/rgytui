@@ -1,5 +1,6 @@
 use super::*;
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::interface::i18n::Translations;
@@ -192,7 +193,7 @@ impl App {
                     } else {
                         "es".into()
                     };
-                    self.ui.config.translations = Translations::load(&self.ui.config.language);
+                    self.ui.config.translations = Arc::new(Translations::load(&self.ui.config.language));
                 }
                 _ => {}
             },

@@ -14,7 +14,6 @@ pub(crate) use crate::domain::media::Song;
 pub(crate) use crate::domain::player_state::PlayerState;
 pub(crate) use crate::infrastructure::config::store::AppSettings;
 use crate::interface::app_ui;
-use crate::interface::i18n::Translations;
 pub(crate) use crate::interface::state::{ActiveScreen, ConfigState, Focus, NotificationLevel, RenderSnapshot, UiState};
 pub(crate) use crate::shared::event::AppEvent;
 use crate::shared::event::InputEvent;
@@ -88,13 +87,12 @@ impl App {
             AppSettings::default()
         });
         let language = i18n.language().to_string();
-        let translations = Translations::load(&language);
         let ui = UiState {
             config: ConfigState::new(
                 settings.theme.clone(),
                 settings.accent_color.clone(),
                 language.clone(),
-                translations,
+                i18n,
                 settings.default_search_limit,
                 settings.download_path.clone(),
             ),
@@ -552,7 +550,7 @@ mod tests {
             thumbnail: None,
             webpage_url: "http://example.com".into(),
         };
-        app.ui.download_pending = Some((song, "dir".into(), "mp3".into()));
+        app.ui.download.download_pending = Some((song, "dir".into(), "mp3".into()));
 
         assert!(!app.ui.show_exit_confirmation, "flag should be false before Ctrl+C");
 
