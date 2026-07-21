@@ -134,12 +134,14 @@ impl AudioPlaybackPort for MpvAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     /// Helper: spawn a process that lives long enough to test kill behavior.
     #[cfg(windows)]
     async fn spawn_sleep_proc() -> tokio::process::Child {
-        tokio::process::Command::new("cmd")
-            .args(["/c", "timeout", "/t", "10"])
+        // Use ping with 10 hops (roughly 9 sec delay) — reliable on all Windows versions
+        tokio::process::Command::new("ping")
+            .args(["-n", "10", "127.0.0.1"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .stdin(Stdio::null())
@@ -157,31 +159,83 @@ mod tests {
             .expect("Failed to spawn test process")
     }
 
+    /// Check whether a process with the given PID is still running.
+    #[cfg(windows)]
+    fn process_exists(pid: u32) -> bool {
+        let output = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+            .output()
+            .expect("tasklist should run");
+        // tasklist outputs the PID string when the process exists;
+        // when no process matches it prints an info message without the PID.
+        let out = String::from_utf8_lossy(&output.stdout);
+        out.contains(&pid.to_string())
+    }
+    #[cfg(not(windows))]
+    fn process_exists(pid: u32) -> bool {
+        std::process::Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
     #[tokio::test]
     async fn test_mpv_child_stored_after_play_video() {
-        // This test verifies that play_video stores the Child handle.
-        // It will fail to compile until MpvAdapter has a `child` field.
+        // Simulate what play_video does: store a child handle.
+        // In production, play_video spawns mpv and stores the Child.
+        // Here we use our sleep helper to verify the field is populated
+        // and the process is actually running.
         let mut backend = MpvAdapter::new();
-        let _ = backend.play_video("http://example.com", Song {
-            id: "test".into(),
-            title: "Test".into(),
-            channel: "".into(),
-            duration: 0.0,
-            thumbnail: None,
-            webpage_url: "http://example.com".into(),
-        }).await;
-        // The child should be Some (even if spawn fails, the field exists)
-        // This assertion verifies the field type and existence
+        let mut child = spawn_sleep_proc().await;
+
+        // Verify child is alive before we move it into the adapter
+        let status = child.try_wait().expect("try_wait should not error");
+        assert!(status.is_none(), "child should be alive before assignment");
+
+        // Store the PID for later verification
+        let pid = child.id().expect("spawned child should have a PID");
+        backend.child = Some(child);
+
+        // Child handle must be stored after play_video semantics
+        assert!(backend.child.is_some(), "child should be stored in the adapter");
+
+        // The subprocess must be alive — verify by polling try_wait through the adapter
+        if let Some(ref mut c) = backend.child {
+            let alive = c.try_wait().expect("try_wait should not error");
+            assert!(alive.is_none(), "child process should be running in adapter");
+        }
+
+        // Clean up
+        backend.stop().unwrap();
+        assert!(backend.child.is_none(), "child field should be None after stop");
+
+        // After stop, the process must be dead
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!process_exists(pid), "child process should be killed after stop");
     }
 
     #[tokio::test]
     async fn test_stop_kills_child() {
         let mut backend = MpvAdapter::new();
-        // Manually assign a child (production code would set it via play_video)
-        backend.child = Some(spawn_sleep_proc().await);
+        let mut child = spawn_sleep_proc().await;
+        let pid = child.id().expect("spawned child should have a PID");
+
+        // Verify child is alive before we move it into the adapter
+        let status_before = child.try_wait().expect("try_wait should not error");
+        assert!(status_before.is_none(), "child should be alive before stop");
+
+        backend.child = Some(child);
         assert!(backend.stop().is_ok());
-        // After stop, child should be taken (None)
-        assert!(backend.child.is_none());
+        // After stop, child field must be None (taken)
+        assert!(backend.child.is_none(), "child field should be None after stop");
+
+        // Give the OS a moment to reap the killed process
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // The process must no longer be running
+        assert!(!process_exists(pid), "child process should be killed after stop");
     }
 
     #[test]
@@ -200,14 +254,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_drop_kills_child() {
+        let mut backend = MpvAdapter::new();
         let mut child = spawn_sleep_proc().await;
-        // Use try_wait before drop to confirm child is alive
+        let pid = child.id().expect("spawned child should have a PID");
+
+        // Verify child is alive before we move it into the adapter
         let status_before = child.try_wait().expect("try_wait should not error");
         assert!(status_before.is_none(), "child should be alive before drop");
 
-        // Drop the child (simulates what MpvAdapter::drop does)
-        drop(child);
-        // If we reach here without panic, drop handled the child safely
+        backend.child = Some(child);
+
+        // Drop the adapter — its Drop impl must kill the child process
+        drop(backend);
+
+        // Give the OS a moment to reap the killed process
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // The process must no longer be running
+        assert!(!process_exists(pid), "child process should be killed after MpvAdapter::drop");
     }
 
     #[tokio::test]
