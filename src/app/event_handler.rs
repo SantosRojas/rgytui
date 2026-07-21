@@ -88,6 +88,13 @@ impl App {
                 self.ui.player.loading_status = None;
                 self.ui.player.current_song = None;
             }
+            AppEvent::ShowConfirmExit => {
+                self.ui.show_exit_confirmation = true;
+                self.ui.push_notification(
+                    self.ui.tr("confirm_exit"),
+                    NotificationLevel::Warning,
+                );
+            }
             AppEvent::Exit => {
                 tracing::info!("Exit event received — triggering cleanup");
             }

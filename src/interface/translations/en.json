@@ -86,5 +86,10 @@
   "notif_theme": "Theme: {}",
   "notif_accent": "Accent color changed",
   "notif_search_count": "Found {} results",
-  "err_search": "Search error: {}"
+  "err_search": "Search error: {}",
+  "confirm_exit": "Download in progress. Press 'y' to exit or 'n' to cancel.",
+  "notif_exit_confirmed": "Exiting after download completes? Press 'y' to confirm",
+  "confirm_exit_title": "Confirm Exit",
+  "yes": "Yes",
+  "no": "No"
 }

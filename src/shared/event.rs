@@ -26,5 +26,7 @@ pub enum AppEvent {
     AudioReady { song: Song, data: Vec<u8> },
     /// Background audio download failed.
     AudioDownloadError(String),
+    /// Show a confirmation dialog when Ctrl+C is pressed during an active download.
+    ShowConfirmExit,
     Exit,
 }
