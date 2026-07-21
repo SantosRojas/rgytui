@@ -30,7 +30,7 @@ async fn main() -> Result<(), anyhow::Error> {
         )
         .init();
 
-    let config = ConfigAdapter::new().await.context("Failed to load config")?;
+    let mut config = ConfigAdapter::new().await.context("Failed to load config")?;
     let settings = config.settings().clone();
     let ytdlp = YtDlpAdapter::new();
     let audio: Box<dyn AudioPlaybackPort> = Box::new(RodioAdapter::new().context("Failed to initialize audio output")?);
@@ -46,8 +46,13 @@ async fn main() -> Result<(), anyhow::Error> {
     let search_port: Arc<dyn MediaSearchPort> = Arc::new(ytdlp);
 
     // Fall back to Audio if mpv is not installed (e.g. user had legacy config with audio_mode: true)
+    // Also persist the corrected audio_mode to config so the warning goes away permanently.
     let initial_mode = if settings.audio_mode && !MpvAdapter::is_mpv_installed() {
         tracing::warn!("Video mode configured but mpv is not installed. Falling back to Audio.");
+        config.settings_mut().audio_mode = false;
+        if let Err(e) = config.save_settings().await {
+            tracing::warn!("Failed to persist corrected audio_mode: {}", e);
+        }
         AudioMode::Audio
     } else {
         AudioMode::from_bool(settings.audio_mode)
