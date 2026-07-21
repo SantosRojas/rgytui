@@ -45,7 +45,14 @@ async fn main() -> Result<(), anyhow::Error> {
     let downloader_port: Arc<dyn DownloaderPort> = Arc::new(ytdlp.clone());
     let search_port: Arc<dyn MediaSearchPort> = Arc::new(ytdlp);
 
-    let playback = PlaybackUseCase::new(downloader_port, audio, mpv, AudioMode::from_bool(settings.audio_mode));
+    // Fall back to Audio if mpv is not installed (e.g. user had legacy config with audio_mode: true)
+    let initial_mode = if settings.audio_mode && !MpvAdapter::is_mpv_installed() {
+        tracing::warn!("Video mode configured but mpv is not installed. Falling back to Audio.");
+        AudioMode::Audio
+    } else {
+        AudioMode::from_bool(settings.audio_mode)
+    };
+    let playback = PlaybackUseCase::new(downloader_port, audio, mpv, initial_mode);
     let search = SearchUseCase::new(search_port);
     let config_port: Box<dyn ConfigPort> = Box::new(config);
 

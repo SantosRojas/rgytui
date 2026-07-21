@@ -27,7 +27,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             volume: 0.8,
-            audio_mode: true,
+            audio_mode: false,
             default_search_limit: 10,
             theme: "dark".into(),
             accent_color: "#00ffff".into(),
