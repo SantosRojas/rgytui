@@ -15,6 +15,7 @@ use crate::application::playback::PlaybackUseCase;
 use crate::application::playlist::PlaylistUseCase;
 use crate::application::ports::{AudioPlaybackPort, ConfigPort, DownloaderPort, I18nPort, MediaSearchPort};
 use crate::application::search::SearchUseCase;
+use crate::domain::audio_mode::AudioMode;
 use crate::infrastructure::audio::mpv_backend::MpvAdapter;
 use crate::infrastructure::audio::rodio_backend::RodioAdapter;
 use crate::infrastructure::config::store::ConfigAdapter;
@@ -44,7 +45,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let downloader_port: Arc<dyn DownloaderPort> = Arc::new(ytdlp.clone());
     let search_port: Arc<dyn MediaSearchPort> = Arc::new(ytdlp);
 
-    let playback = PlaybackUseCase::new(downloader_port, audio, mpv);
+    let playback = PlaybackUseCase::new(downloader_port, audio, mpv, AudioMode::from_bool(settings.audio_mode));
     let search = SearchUseCase::new(search_port);
     let config_port: Box<dyn ConfigPort> = Box::new(config);
 

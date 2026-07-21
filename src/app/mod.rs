@@ -444,7 +444,7 @@ mod tests {
         let ytdlp = YtDlpAdapter::new();
         let downloader: Arc<dyn DownloaderPort> = Arc::new(ytdlp.clone());
         let search_port: Arc<dyn MediaSearchPort> = Arc::new(ytdlp);
-        let playback = PlaybackUseCase::new(downloader, audio, mpv);
+        let playback = PlaybackUseCase::new(downloader, audio, mpv, AudioMode::Audio);
         let search = SearchUseCase::new(search_port);
         let playlist = PlaylistUseCase::new();
         let config_port: Box<dyn ConfigPort> = Box::new(config);

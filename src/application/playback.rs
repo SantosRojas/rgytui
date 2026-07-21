@@ -21,12 +21,12 @@ pub struct PlaybackUseCase {
 }
 
 impl PlaybackUseCase {
-    pub fn new(downloader: Arc<dyn DownloaderPort>, audio: Box<dyn AudioPlaybackPort>, mpv: MpvAdapter) -> Self {
+    pub fn new(downloader: Arc<dyn DownloaderPort>, audio: Box<dyn AudioPlaybackPort>, mpv: MpvAdapter, mode: AudioMode) -> Self {
         Self {
             downloader,
             audio,
             mpv,
-            mode: AudioMode::Audio,
+            mode,
             temp_file: None,
         }
     }
