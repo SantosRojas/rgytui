@@ -70,6 +70,8 @@ impl PlaybackUseCase {
     async fn download_and_play(&mut self, song: &Song) -> Result<(), DomainError> {
         let tmp = NamedTempFile::new()?;
         let path = tmp.path().to_owned();
+        // Assign temp_file immediately so Drop cleans up on early error return.
+        self.temp_file = Some(tmp);
 
         let output = tokio::time::timeout(
             Duration::from_secs(120),
@@ -95,7 +97,6 @@ impl PlaybackUseCase {
 
         tokio::fs::write(&path, &output.stdout).await?;
         self.audio.play_file(&path, song.clone())?;
-        self.temp_file = Some(tmp);
 
         Ok(())
     }
