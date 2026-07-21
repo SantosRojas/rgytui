@@ -48,6 +48,11 @@ impl App {
         playlist: PlaylistUseCase,
         config: Box<dyn ConfigPort>,
     ) -> Self {
+        // Clean up orphan temp files from previous runs
+        if let Err(e) = cleanup_orphan_tempfiles() {
+            tracing::warn!("Failed to cleanup orphan temp files: {}", e);
+        }
+
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (input_tx, input_rx) = mpsc::unbounded_channel();
 
@@ -304,6 +309,52 @@ impl App {
 
 }
 
+/// Scan the OS temp directory for orphaned rgytui temp files older than 1 hour and delete them.
+pub fn cleanup_orphan_tempfiles() -> std::io::Result<()> {
+    cleanup_tempfiles_in_dir(std::env::temp_dir(), std::time::Duration::from_secs(3600))
+}
+
+/// Scan `dir` for files matching `rgytui-*` older than `max_age` and delete them.
+/// Exposed as a separate function for testability.
+fn cleanup_tempfiles_in_dir<P: AsRef<std::path::Path>>(
+    dir: P,
+    max_age: std::time::Duration,
+) -> std::io::Result<()> {
+    let cutoff = std::time::SystemTime::now() - max_age;
+
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(()),
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        if !name.starts_with("rgytui-") {
+            continue;
+        }
+        if let Ok(meta) = entry.metadata()
+            && let Ok(modified) = meta.modified()
+            && modified < cutoff
+        {
+            tracing::debug!("Cleaning up orphan temp file: {:?}", path);
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,6 +369,73 @@ mod tests {
     use crate::infrastructure::audio::rodio_backend::RodioAdapter;
     use crate::infrastructure::config::store::ConfigAdapter;
     use crate::infrastructure::ytdlp::client::YtDlpAdapter;
+
+    // Helper: create a file in the given directory with the given name
+    fn create_file(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, b"test content").unwrap();
+        path
+    }
+
+    #[test]
+    fn test_cleanup_orphan_tempfiles_deletes_rgytui_files() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let dir_path = tmp_dir.path();
+
+        // Create an rgytui-prefixed file (should be deleted)
+        let rgytui_path = create_file(dir_path, "rgytui-orphan-test.tmp");
+        // Create a non-matching file (should NOT be deleted)
+        let other_path = create_file(dir_path, "other-test.tmp");
+
+        // Both exist before cleanup
+        assert!(rgytui_path.exists(), "rgytui file should exist before cleanup");
+        assert!(other_path.exists(), "other file should exist before cleanup");
+
+        // Run cleanup with max_age = 0 (deletes any rgytui-* file)
+        cleanup_tempfiles_in_dir(dir_path, std::time::Duration::ZERO).unwrap();
+
+        // rgytui file deleted, other file preserved
+        assert!(!rgytui_path.exists(), "rgytui-prefixed file should be deleted");
+        assert!(other_path.exists(), "non-rgytui file should NOT be deleted");
+    }
+
+    #[test]
+    fn test_cleanup_orphan_tempfiles_skips_non_matching_prefix() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let dir_path = tmp_dir.path();
+
+        // "rgytui" (no hyphen) → does NOT match "rgytui-" prefix filter
+        let no_hyphen = create_file(dir_path, "rgytuitest.tmp");
+        // "rgytui-" → DOES match
+        let with_hyphen = create_file(dir_path, "rgytui-test.tmp");
+        // "rgytui-something" → DOES match
+        let longer = create_file(dir_path, "rgytui-mydata.tmp");
+
+        // All exist before
+        assert!(no_hyphen.exists(), "rgytui (no hyphen) should exist before cleanup");
+        assert!(with_hyphen.exists(), "rgytui- should exist before cleanup");
+        assert!(longer.exists(), "rgytui-mydata should exist before cleanup");
+
+        cleanup_tempfiles_in_dir(dir_path, std::time::Duration::ZERO).unwrap();
+
+        // Only files starting with "rgytui-" are deleted
+        assert!(no_hyphen.exists(), "'rgytui' (no hyphen) should NOT be deleted");
+        assert!(!with_hyphen.exists(), "'rgytui-' should be deleted");
+        assert!(!longer.exists(), "'rgytui-mydata' should be deleted");
+    }
+
+    #[test]
+    fn test_cleanup_orphan_tempfiles_handles_empty_or_missing_dir() {
+        // Non-existent directory — should not panic
+        let bad_path = std::path::PathBuf::from(r"C:\ThisPathDoesNotExist_42");
+        let result = cleanup_tempfiles_in_dir(&bad_path, std::time::Duration::ZERO);
+        assert!(result.is_ok(), "cleanup on missing dir should return Ok, got {:?}", result);
+
+        // Empty directory — should not panic, Ok(())
+        let empty_dir = tempfile::tempdir().unwrap();
+        let result = cleanup_tempfiles_in_dir(empty_dir.path(), std::time::Duration::ZERO);
+        assert!(result.is_ok(), "cleanup on empty dir should return Ok, got {:?}", result);
+    }
 
     /// Helper to build a test App. Returns None if audio device isn't available.
     async fn build_test_app() -> Option<App> {
