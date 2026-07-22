@@ -102,32 +102,37 @@ impl<S: Source<Item = f32>> SpectrumSource<S> {
             *val = self.fft_buf[bin].norm().sqrt();
         }
 
-        if let Ok(mut frame) = self.frame.lock() {
-            for i in 0..BANDS {
-                // Linearly interpolate the magnitude from the surrounding FFT bins
-                let bin_pos = self.band_to_bin[i];
-                let idx = bin_pos.floor() as usize;
-                let frac = bin_pos - idx as f32;
-                let next = (idx + 1).min(NUM_BINS);
-                let val = fft_mag[idx] * (1.0 - frac) + fft_mag[next] * frac;
-
-                // Peak normalization/scaling (keeps values dynamic)
-                self.norm_peak[i] *= 0.995;
-                self.norm_peak[i] = self.norm_peak[i].max(val);
-                let normalized = if self.norm_peak[i] > 0.0 {
-                    val / self.norm_peak[i]
-                } else {
-                    0.0
-                };
-
-                // Apply smoothing
-                frame.bands[i] = frame.bands[i] * 0.7 + normalized * 0.3;
-
-                // Peak decay tracking
-                self.vis_peak[i] *= 0.98;
-                self.vis_peak[i] = self.vis_peak[i].max(frame.bands[i]);
-                frame.peaks[i] = self.vis_peak[i];
+        let mut frame = match self.frame.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                tracing::warn!("Spectrum mutex poisoned — visualization may be stale");
+                return;
             }
+        };
+        for i in 0..BANDS {
+            // Linearly interpolate the magnitude from the surrounding FFT bins
+            let bin_pos = self.band_to_bin[i];
+            let idx = bin_pos.floor() as usize;
+            let frac = bin_pos - idx as f32;
+            let next = (idx + 1).min(NUM_BINS);
+            let val = fft_mag[idx] * (1.0 - frac) + fft_mag[next] * frac;
+
+            // Peak normalization/scaling (keeps values dynamic)
+            self.norm_peak[i] *= 0.995;
+            self.norm_peak[i] = self.norm_peak[i].max(val);
+            let normalized = if self.norm_peak[i] > 0.0 {
+                val / self.norm_peak[i]
+            } else {
+                0.0
+            };
+
+            // Apply smoothing
+            frame.bands[i] = frame.bands[i] * 0.7 + normalized * 0.3;
+
+            // Peak decay tracking
+            self.vis_peak[i] *= 0.98;
+            self.vis_peak[i] = self.vis_peak[i].max(frame.bands[i]);
+            frame.peaks[i] = self.vis_peak[i];
         }
     }
 }

@@ -64,27 +64,39 @@ impl App {
         let (event_tx, event_rx) = mpsc::channel(256);
         let (input_tx, input_rx) = mpsc::channel(256);
 
+        // Input thread: runs crossterm::event::read() in a loop. Restarts on panic
+        // (up to 3 times) to avoid losing keyboard input on transient terminal errors.
+        // On persistent errors, sleeps briefly to avoid busy-looping at 100% CPU.
         std::thread::spawn(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| loop {
-                match crossterm::event::read() {
-                    Ok(crossterm::event::Event::Key(key)) => {
-                        if key.kind != KeyEventKind::Press {
-                            continue;
+            let max_restarts = 3;
+            for restart in 0..=max_restarts {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| loop {
+                    match crossterm::event::read() {
+                        Ok(crossterm::event::Event::Key(key)) => {
+                            if key.kind != KeyEventKind::Press {
+                                continue;
+                            }
+                            if input_tx.blocking_send(InputEvent::Key(key)).is_err() {
+                                break;
+                            }
                         }
-                        // blocking_send provides backpressure: blocks when buffer is full
-                        if input_tx.blocking_send(InputEvent::Key(key)).is_err() {
-                            break;
+                        Ok(crossterm::event::Event::Mouse(mouse))
+                            if input_tx.blocking_send(InputEvent::Mouse(mouse)).is_err() => {
+                                break;
+                            }
+                        Ok(_) => {}
+                        Err(e) => {
+                            // Terminal read error — log, sleep briefly, and retry
+                            tracing::warn!("Input thread read error: {e}");
+                            std::thread::sleep(std::time::Duration::from_millis(100));
                         }
                     }
-                    Ok(crossterm::event::Event::Mouse(mouse))
-                        if input_tx.blocking_send(InputEvent::Mouse(mouse)).is_err() => {
-                            break;
-                        }
-                    _ => {}
+                }));
+                if result.is_ok() {
+                    break; // thread exited cleanly (channel closed)
                 }
-            }));
-            if let Err(e) = result {
-                tracing::error!("Input thread panicked: {:?}", e);
+                tracing::warn!("Input thread panicked (attempt {}/{}), restarting", restart + 1, max_restarts);
+                std::thread::sleep(std::time::Duration::from_millis(200));
             }
         });
 
@@ -180,8 +192,10 @@ impl App {
 
             if should_exit {
                 self.on_exit().await;
-                // Brief delay to let spawned tasks notice cancellation and drain
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                // Give spawned tasks a chance to notice cancellation.
+                // The tokio runtime drop in main() guarantees any remaining
+                // tasks (and their child processes) are aborted.
+                tokio::time::sleep(Duration::from_millis(200)).await;
                 break;
             }
         }
