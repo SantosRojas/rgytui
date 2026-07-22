@@ -74,6 +74,8 @@
   "err_playback": "Error de reproducción: {}",
   "err_download": "Error de descarga: {}",
   "err_generic": "Error: {}",
+  "settings_loading": "Animación Carga: ",
+  "notif_loading": "Animación de carga: {}",
   "notif_already_playing": "Ya está sonando",
   "notif_already_in_queue": "'{}' ya está en la cola",
   "notif_added_to_queue": "'{}' agregado a la cola",

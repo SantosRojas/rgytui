@@ -120,7 +120,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderS
     }
 
     if state.player.loading_status.is_some() || state.player.current_song.is_none() {
-        let loading = LoadingWidget::new(state.player.spinner_frame, theme.accent)
+        let loading = LoadingWidget::new(state.player.spinner_frame, theme.accent, state.config.loading_animation)
             .message(state.player.loading_status.clone().unwrap_or_else(|| state.tr("player_loading")));
         frame.render_widget(loading, spectrum_area);
     } else {

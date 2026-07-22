@@ -5,10 +5,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::application::ports::ConfigPort;
 use crate::domain::error::DomainError;
+use crate::domain::loading_animation::LoadingAnimation;
 use crate::domain::media::Playlist;
 
 fn default_language() -> String {
     "en".into()
+}
+
+fn default_loading_animation() -> String {
+    LoadingAnimation::Wave.as_str().into()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -21,6 +26,8 @@ pub struct AppSettings {
     pub download_path: String,
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default = "default_loading_animation")]
+    pub loading_animation: String,
 }
 
 impl Default for AppSettings {
@@ -33,6 +40,7 @@ impl Default for AppSettings {
             accent_color: "#00ffff".into(),
             download_path: default_download_path(),
             language: "en".into(),
+            loading_animation: default_loading_animation(),
         }
     }
 }

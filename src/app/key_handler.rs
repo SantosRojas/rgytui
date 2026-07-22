@@ -138,7 +138,7 @@ impl App {
                 self.ui.settings.settings_focus = self.ui.settings.settings_focus.saturating_sub(1);
             }
             KeyCode::Down => {
-                self.ui.settings.settings_focus = (self.ui.settings.settings_focus + 1).min(5);
+                self.ui.settings.settings_focus = (self.ui.settings.settings_focus + 1).min(6);
             }
             KeyCode::Enter | KeyCode::Char(' ') => match self.ui.settings.settings_focus {
                 0 => {
@@ -191,6 +191,13 @@ impl App {
                         "es".into()
                     };
                     self.ui.config.translations = Arc::new(Translations::load(&self.ui.config.language));
+                }
+                6 => {
+                    self.ui.config.loading_animation = self.ui.config.loading_animation.next();
+                    self.ui.push_notification(
+                        self.ui.tr("notif_loading").replace("{}", self.ui.config.loading_animation.display_name()),
+                        NotificationLevel::Info,
+                    );
                 }
                 _ => {}
             },

@@ -63,6 +63,10 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderS
             Span::styled(state.tr("settings_language"), Style::default().fg(theme.text)),
             Span::styled(state.config.language.clone(), Style::default().fg(theme.accent)),
         ])),
+        ListItem::new(Line::from(vec![
+            Span::styled(state.tr("settings_loading"), Style::default().fg(theme.text)),
+            Span::styled(state.config.loading_animation.display_name(), Style::default().fg(theme.accent)),
+        ])),
     ];
 
     let list = List::new(items)

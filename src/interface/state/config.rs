@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::application::ports::I18nPort;
+use crate::domain::loading_animation::LoadingAnimation;
 use crate::interface::i18n::Translations;
 use crate::interface::theme::Theme;
 
@@ -13,6 +14,7 @@ pub struct ConfigState {
     cached_theme: Option<Theme>,
     pub default_search_limit: usize,
     pub download_path: String,
+    pub loading_animation: LoadingAnimation,
 }
 
 impl ConfigState {
@@ -23,6 +25,7 @@ impl ConfigState {
         translations: Arc<dyn I18nPort>,
         default_search_limit: usize,
         download_path: String,
+        loading_animation: LoadingAnimation,
     ) -> Self {
         Self {
             theme_name,
@@ -32,6 +35,7 @@ impl ConfigState {
             cached_theme: None,
             default_search_limit,
             download_path,
+            loading_animation,
         }
     }
 
@@ -63,6 +67,7 @@ impl Default for ConfigState {
             cached_theme: None,
             default_search_limit: 10,
             download_path: String::new(),
+            loading_animation: LoadingAnimation::Wave,
         }
     }
 }

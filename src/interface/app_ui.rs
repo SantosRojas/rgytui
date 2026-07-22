@@ -275,7 +275,7 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, snapshot: 
 
     if is_loading {
         // Show modern loading animation instead of song info + spectrum
-        let loading = LoadingWidget::new(state.player.spinner_frame, theme.accent)
+        let loading = LoadingWidget::new(state.player.spinner_frame, theme.accent, state.config.loading_animation)
             .message(state.player.loading_status.clone().unwrap_or_else(|| state.tr("player_loading")));
         frame.render_widget(loading, inner_area);
     } else if let Some(ref song) = state.player.current_song {
