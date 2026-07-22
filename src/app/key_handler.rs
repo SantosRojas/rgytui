@@ -42,27 +42,24 @@ impl App {
         }
 
         // Global toggle keys
-        match key.code {
-            KeyCode::Esc => {
-                match self.ui.active_screen {
-                    ActiveScreen::Help | ActiveScreen::Settings | ActiveScreen::Player => {
-                        self.ui.active_screen = ActiveScreen::Search;
-                        self.ui.focus = Focus::SearchInput;
-                    }
-                    ActiveScreen::Search => {
-                        if self.ui.focus == Focus::SearchInput && !self.ui.search.search_query.is_empty() {
-                            self.ui.search.search_query.clear();
-                        } else {
-                            self.ui.focus = match self.ui.focus {
-                                Focus::SearchInput | Focus::SearchResults => Focus::SearchInput,
-                                Focus::QueueList => Focus::SearchResults,
-                            };
-                        }
+        if key.code == KeyCode::Esc {
+            match self.ui.active_screen {
+                ActiveScreen::Help | ActiveScreen::Settings | ActiveScreen::Player => {
+                    self.ui.active_screen = ActiveScreen::Search;
+                    self.ui.focus = Focus::SearchInput;
+                }
+                ActiveScreen::Search => {
+                    if self.ui.focus == Focus::SearchInput && !self.ui.search.search_query.is_empty() {
+                        self.ui.search.search_query.clear();
+                    } else {
+                        self.ui.focus = match self.ui.focus {
+                            Focus::SearchInput | Focus::SearchResults => Focus::SearchInput,
+                            Focus::QueueList => Focus::SearchResults,
+                        };
                     }
                 }
-                return Ok(false);
             }
-            _ => {}
+            return Ok(false);
         }
 
         // Screen-specific handlers
@@ -461,13 +458,7 @@ impl App {
                     self.schedule_play_selected();
                 }
                 Focus::QueueList => {
-                    let idx = self.ui.queue.queue_selected;
-                    if idx < self.playlist.songs().len() {
-                        self.playlist.set_current_index(idx);
-                        if let Some(song) = self.playlist.current_song_cloned() {
-                            self.queue_play(song);
-                        }
-                    }
+                    self.play_selected_from_queue();
                 }
             },
             KeyCode::Backspace => {

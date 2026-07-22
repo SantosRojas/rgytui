@@ -15,6 +15,7 @@ pub(crate) use crate::domain::player_state::PlayerState;
 pub(crate) use crate::infrastructure::config::store::AppSettings;
 use crate::interface::app_ui;
 pub(crate) use crate::interface::state::{ActiveScreen, ConfigState, Focus, NotificationLevel, RenderSnapshot, UiState};
+use ratatui::layout::Rect;
 pub(crate) use crate::shared::event::AppEvent;
 use crate::shared::event::InputEvent;
 
@@ -39,6 +40,7 @@ pub struct App {
     cancel_token: CancellationToken,
     pending_play: Option<Song>,
     last_search: Option<Instant>,
+    last_click: Option<(Instant, u16, u16)>,
     download_semaphore: Arc<Semaphore>,
 }
 
@@ -69,11 +71,10 @@ impl App {
                             break;
                         }
                     }
-                    Ok(crossterm::event::Event::Mouse(mouse)) => {
-                        if input_tx.send(InputEvent::Mouse(mouse)).is_err() {
+                    Ok(crossterm::event::Event::Mouse(mouse))
+                        if input_tx.send(InputEvent::Mouse(mouse)).is_err() => {
                             break;
                         }
-                    }
                     _ => {}
                 }
             }));
@@ -112,6 +113,7 @@ impl App {
             cancel_token: CancellationToken::new(),
             pending_play: None,
             last_search: None,
+            last_click: None,
             download_semaphore: Arc::new(Semaphore::new(3)),
         }
     }
@@ -181,85 +183,109 @@ impl App {
         Ok(())
     }
 
+    /// Detect double-click by tracking time and position of consecutive clicks.
+    /// Updates last_click on every call — call exactly once per click event.
+    fn is_double_click(&mut self, col: u16, row: u16) -> bool {
+        const DOUBLE_CLICK_MS: u64 = 400;
+        let now = Instant::now();
+        let is_double = self.last_click.is_some_and(|(time, last_col, last_row)| {
+            now.duration_since(time).as_millis() <= u128::from(DOUBLE_CLICK_MS)
+                && col == last_col
+                && row == last_row
+        });
+        self.last_click = Some((now, col, row));
+        is_double
+    }
+
     fn handle_mouse(&mut self, event: MouseEvent) {
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 let col = event.column;
                 let row = event.row;
-                let rects = self.ui.panel_rects.borrow();
+                let is_double = self.is_double_click(col, row);
 
-                // Check search input — click to focus
-                if let Some(rect) = rects.get("search_input") {
-                    if row >= rect.y && row < rect.y + rect.height
-                        && col >= rect.x && col < rect.x + rect.width
+                // Phase 1: resolve click target using rects (immutable borrow only)
+                enum HitTarget {
+                    SearchInput,
+                    SearchResults(usize),  // resolved index
+                    QueueItem(usize),       // resolved index
+                    Outside,
+                }
+
+                let target = {
+                    let rects = self.ui.panel_rects.borrow();
+
+                    let hit = |rect: &Rect| -> bool {
+                        row >= rect.y && row < rect.y + rect.height
+                            && col >= rect.x && col < rect.x + rect.width
+                    };
+
+                    let resolve_idx = |rect: &Rect, selected: usize, count: usize| -> usize {
+                        let visible_height = (rect.height.saturating_sub(2)) as usize;
+                        if visible_height > 0 && row > rect.y {
+                            let relative_row = (row - rect.y - 1) as usize;
+                            if relative_row < visible_height {
+                                let offset = if count > visible_height {
+                                    selected.min(count.saturating_sub(visible_height))
+                                } else {
+                                    0
+                                };
+                                return offset + relative_row;
+                            }
+                        }
+                        // fallback: keep current selection
+                        selected
+                    };
+
+                    if let Some(r) = rects.get("search_input")
+                        && hit(r)
                     {
+                        HitTarget::SearchInput
+                    } else if let Some(r) = rects.get("search_results")
+                        && hit(r)
+                    {
+                        let idx = resolve_idx(r, self.ui.search.selected_index, self.ui.search.search_results.len());
+                        HitTarget::SearchResults(idx)
+                    } else if let Some(r) = rects.get("queue")
+                        && hit(r)
+                    {
+                        let idx = resolve_idx(r, self.ui.queue.queue_selected, self.playlist.songs().len());
+                        HitTarget::QueueItem(idx)
+                    } else {
+                        HitTarget::Outside
+                    }
+                }; // rects dropped here — immutable borrow released
+
+                // Phase 2: act on the resolved target (mutable borrow OK)
+                match target {
+                    HitTarget::SearchInput => {
                         self.ui.active_screen = ActiveScreen::Search;
                         self.ui.focus = Focus::SearchInput;
-                        return;
                     }
-                }
-
-                // Check search results — click to select + focus
-                if let Some(rect) = rects.get("search_results") {
-                    if row >= rect.y && row < rect.y + rect.height
-                        && col >= rect.x && col < rect.x + rect.width
-                    {
+                    HitTarget::SearchResults(idx) => {
                         self.ui.active_screen = ActiveScreen::Search;
                         self.ui.focus = Focus::SearchResults;
-
-                        // Resolve click Y coordinate to list index,
-                        // matching the render-time scroll offset logic
-                        let visible_height = (rect.height.saturating_sub(2)) as usize;
-                        if visible_height > 0 && row >= rect.y + 1 {
-                            let relative_row = (row - rect.y - 1) as usize;
-                            if relative_row < visible_height {
-                                let item_count = self.ui.search.search_results.len();
-                                let offset = if item_count > visible_height {
-                                    self.ui.search.selected_index
-                                        .min(item_count.saturating_sub(visible_height))
-                                } else {
-                                    0
-                                };
-                                let idx = offset + relative_row;
-                                if idx < item_count {
-                                    self.ui.search.selected_index = idx;
-                                }
-                            }
+                        if idx < self.ui.search.search_results.len() {
+                            self.ui.search.selected_index = idx;
                         }
-                        return;
+                        if is_double {
+                            self.schedule_play_selected();
+                        }
                     }
-                }
-
-                // Check queue — click to select + focus
-                if let Some(rect) = rects.get("queue") {
-                    if row >= rect.y && row < rect.y + rect.height
-                        && col >= rect.x && col < rect.x + rect.width
-                    {
+                    HitTarget::QueueItem(idx) => {
                         self.ui.active_screen = ActiveScreen::Search;
                         self.ui.focus = Focus::QueueList;
-
-                        let visible_height = (rect.height.saturating_sub(2)) as usize;
-                        if visible_height > 0 && row >= rect.y + 1 {
-                            let relative_row = (row - rect.y - 1) as usize;
-                            if relative_row < visible_height {
-                                let item_count = self.playlist.songs().len();
-                                let offset = if item_count > visible_height {
-                                    self.ui.queue.queue_selected
-                                        .min(item_count.saturating_sub(visible_height))
-                                } else {
-                                    0
-                                };
-                                let idx = offset + relative_row;
-                                if idx < item_count {
-                                    self.ui.queue.queue_selected = idx;
-                                }
-                            }
+                        if idx < self.playlist.songs().len() {
+                            self.ui.queue.queue_selected = idx;
                         }
-                        return;
+                        if is_double {
+                            self.play_selected_from_queue();
+                        }
+                    }
+                    HitTarget::Outside => {
+                        // Click outside any panel — silently ignored
                     }
                 }
-
-                // Click outside any panel — silently ignored
             }
             MouseEventKind::ScrollDown => {
                 self.handle_scroll_down();
@@ -357,7 +383,8 @@ fn cleanup_tempfiles_in_dir<P: AsRef<std::path::Path>>(
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use ratatui::layout::Rect;
     use crate::application::playback::PlaybackUseCase;
     use crate::application::playlist::PlaylistUseCase;
     use crate::application::ports::{AudioPlaybackPort, ConfigPort, DownloaderPort, MediaSearchPort};
@@ -1221,5 +1248,239 @@ mod tests {
             ActiveScreen::Help,
             "random key in help should be silently ignored"
         );
+    }
+
+    // ── Double-click to play ─────────────────────────────────────────────
+
+    fn click(col: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: col,
+            row,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_single_click_selects_search_result() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.search.search_results = songs(5);
+        app.ui.active_screen = ActiveScreen::Search;
+        app.ui.focus = Focus::SearchInput;
+        app.ui.panel_rects.borrow_mut().insert(
+            "search_results".to_string(),
+            Rect { x: 0, y: 3, width: 100, height: 30 },
+        );
+
+        app.handle_mouse(click(10, 5));
+
+        assert_eq!(app.ui.focus, Focus::SearchResults, "click should focus search results");
+        assert_eq!(app.ui.search.selected_index, 1, "click should select item at row 5");
+        assert!(app.pending_play.is_none(), "single click should NOT trigger play");
+    }
+
+    #[tokio::test]
+    async fn test_double_click_search_result_plays() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.search.search_results = songs(5);
+        app.ui.active_screen = ActiveScreen::Search;
+        app.ui.focus = Focus::SearchInput;
+        app.ui.panel_rects.borrow_mut().insert(
+            "search_results".to_string(),
+            Rect { x: 0, y: 3, width: 100, height: 30 },
+        );
+
+        // First click — select only
+        app.handle_mouse(click(10, 5));
+        assert!(app.pending_play.is_none(), "first click should NOT play");
+
+        // Second click at same position — double-click → play
+        app.handle_mouse(click(10, 5));
+        assert!(app.pending_play.is_some(), "double-click should trigger play");
+    }
+
+    #[tokio::test]
+    async fn test_double_click_queue_item_plays() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        for s in songs(5) {
+            app.playlist.add(s);
+        }
+        app.ui.active_screen = ActiveScreen::Search;
+        app.ui.focus = Focus::SearchResults;
+        app.ui.panel_rects.borrow_mut().insert(
+            "queue".to_string(),
+            Rect { x: 0, y: 3, width: 100, height: 30 },
+        );
+
+        // First click — select only
+        app.handle_mouse(click(10, 5));
+        assert!(app.pending_play.is_none(), "first click should NOT play");
+
+        // Second click — double-click → play
+        app.handle_mouse(click(10, 5));
+        assert!(app.pending_play.is_some(), "double-click in queue should play");
+    }
+
+    #[tokio::test]
+    async fn test_double_click_on_search_input_does_not_play() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.active_screen = ActiveScreen::Search;
+        app.ui.focus = Focus::SearchInput;
+        app.ui.panel_rects.borrow_mut().insert(
+            "search_input".to_string(),
+            Rect { x: 0, y: 0, width: 100, height: 3 },
+        );
+
+        // Two quick clicks on search input — should focus, not play
+        app.handle_mouse(click(10, 1));
+        assert_eq!(app.ui.focus, Focus::SearchInput, "click on input should stay on input");
+        assert!(app.pending_play.is_none(), "click on input should not play");
+
+        app.handle_mouse(click(10, 1));
+        assert!(app.pending_play.is_none(), "double-click on input should not play");
+    }
+
+    #[tokio::test]
+    async fn test_double_click_on_empty_list_does_not_panic() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.search.search_results = vec![]; // empty
+        app.ui.active_screen = ActiveScreen::Search;
+        app.ui.focus = Focus::SearchInput;
+        app.ui.panel_rects.borrow_mut().insert(
+            "search_results".to_string(),
+            Rect { x: 0, y: 3, width: 100, height: 30 },
+        );
+
+        // Should not crash
+        app.handle_mouse(click(10, 5));
+        app.handle_mouse(click(10, 5));
+        // No assertion needed — we just verify it doesn't panic
+    }
+
+    #[tokio::test]
+    async fn test_double_click_outside_panel_ignored() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        // No panel rects set up — click outside any panel
+        app.handle_mouse(click(200, 200));
+        app.handle_mouse(click(200, 200));
+        // Should not panic, should not change state
+    }
+
+    #[tokio::test]
+    async fn test_double_click_already_playing_skips() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.search.search_results = songs(5);
+        app.ui.active_screen = ActiveScreen::Search;
+        app.ui.focus = Focus::SearchInput;
+        app.ui.panel_rects.borrow_mut().insert(
+            "search_results".to_string(),
+            Rect { x: 0, y: 3, width: 100, height: 30 },
+        );
+        // Simulate that song at index 1 (id-1) is already playing
+        app.ui.player.current_song = Some(song(1));
+
+        // First click only selects
+        app.handle_mouse(click(10, 5)); // resolves to index 1 (same as current)
+        assert!(app.pending_play.is_none(), "first click should not play");
+
+        // Second click — double-click, guard should skip re-play
+        app.handle_mouse(click(10, 5));
+        assert!(app.pending_play.is_none(), "double-click on already-playing song should NOT re-download");
+    }
+
+    #[tokio::test]
+    async fn test_double_click_queue_already_playing_skips() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        for s in songs(5) {
+            app.playlist.add(s);
+        }
+        app.ui.active_screen = ActiveScreen::Search;
+        app.ui.focus = Focus::SearchResults;
+        app.ui.panel_rects.borrow_mut().insert(
+            "queue".to_string(),
+            Rect { x: 0, y: 3, width: 100, height: 30 },
+        );
+        // Simulate that the song at queue index 1 is already playing
+        let playing = app.playlist.playlist().songs()[1].clone();
+        app.ui.player.current_song = Some(playing);
+
+        // First click selects
+        app.handle_mouse(click(10, 5)); // resolves to index 1
+        assert!(app.pending_play.is_none(), "first click should not play");
+
+        // Second click — guard should skip
+        app.handle_mouse(click(10, 5));
+        assert!(app.pending_play.is_none(), "double-click on already-playing queue item should skip");
+    }
+
+    #[tokio::test]
+    async fn test_double_click_different_song_plays_when_another_is_playing() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.search.search_results = songs(5);
+        app.ui.active_screen = ActiveScreen::Search;
+        app.ui.focus = Focus::SearchInput;
+        app.ui.panel_rects.borrow_mut().insert(
+            "search_results".to_string(),
+            Rect { x: 0, y: 3, width: 100, height: 30 },
+        );
+        // Song 0 is playing
+        app.ui.player.current_song = Some(song(0));
+
+        // Click at row 6 → selects index 2 (song 2 — different from playing)
+        app.handle_mouse(click(10, 6));
+        assert_eq!(app.ui.search.selected_index, 2, "click should select song 2");
+        assert!(app.pending_play.is_none(), "first click should not play");
+
+        // Second click — double-click on a DIFFERENT song → should play
+        app.handle_mouse(click(10, 6));
+        assert!(app.pending_play.is_some(), "double-click on DIFFERENT song should play even if another is playing");
+    }
+
+    #[tokio::test]
+    async fn test_double_click_after_error_allows_replay() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.search.search_results = songs(5);
+        app.ui.active_screen = ActiveScreen::Search;
+        app.ui.focus = Focus::SearchInput;
+        app.ui.panel_rects.borrow_mut().insert(
+            "search_results".to_string(),
+            Rect { x: 0, y: 3, width: 100, height: 30 },
+        );
+        // After an error, current_song is None — replay is allowed
+        app.ui.player.current_song = None;
+
+        app.handle_mouse(click(10, 5)); // selects index 1
+        app.handle_mouse(click(10, 5)); // double-click
+        assert!(app.pending_play.is_some(), "replay after error should be allowed");
     }
 }

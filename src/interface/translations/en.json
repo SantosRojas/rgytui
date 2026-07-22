@@ -74,6 +74,7 @@
   "err_playback": "Playback error: {}",
   "err_download": "Download error: {}",
   "err_generic": "Error: {}",
+  "notif_already_playing": "Already playing",
   "notif_already_in_queue": "Already in queue: '{}'",
   "notif_added_to_queue": "Added '{}' to queue",
   "notif_downloaded": "Downloaded '{}'",

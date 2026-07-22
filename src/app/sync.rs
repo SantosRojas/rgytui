@@ -3,8 +3,8 @@ use super::*;
 impl App {
     pub(crate) fn update_progress(&mut self) {
         let state = self.playback.state();
-        if let PlayerState::Playing | PlayerState::Paused = state {
-            if self.playback.state() == PlayerState::Playing
+        if let PlayerState::Playing | PlayerState::Paused = state
+            && self.playback.state() == PlayerState::Playing
                 && self.playback.is_sink_empty()
             {
                 if let Err(e) = self.playback.stop() {
@@ -14,6 +14,30 @@ impl App {
                 if let Some(next) = self.playlist.next().cloned() {
                     self.queue_play(next);
                 }
+            }
+    }
+
+    /// Guard: skip re-play if the same song is already playing/paused/loading.
+    /// Only allows re-play when `current_song` is `None` (idle or after an error).
+    fn guard_already_playing(&self, song_id: &str) -> bool {
+        if let Some(ref current) = self.ui.player.current_song
+            && current.id == song_id
+        {
+            return true;
+        }
+        false
+    }
+
+    pub(crate) fn play_selected_from_queue(&mut self) {
+        let idx = self.ui.queue.queue_selected;
+        if idx < self.playlist.songs().len() {
+            self.playlist.set_current_index(idx);
+            if let Some(song) = self.playlist.current_song_cloned() {
+                if self.guard_already_playing(&song.id) {
+                    self.ui.push_notification(self.ui.tr("notif_already_playing"), NotificationLevel::Info);
+                    return;
+                }
+                self.queue_play(song);
             }
         }
     }
@@ -27,6 +51,14 @@ impl App {
             Some(s) => s.clone(),
             None => return,
         };
+
+        // Don't re-play the same song if it's already playing/paused/loading.
+        // Re-play is only allowed after an error (current_song = None).
+        if self.guard_already_playing(&song.id) {
+            self.ui.push_notification(self.ui.tr("notif_already_playing"), NotificationLevel::Info);
+            return;
+        }
+
         // If the song is already in the queue, jump to it and re-trigger playback
         // (allows retry after an error without the "already in queue" short-circuit)
         if let Some(pos) = self.playlist.songs().iter().position(|s| s.id == song.id) {

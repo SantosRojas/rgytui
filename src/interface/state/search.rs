@@ -6,8 +6,6 @@ pub struct SearchState {
     pub search_results: Vec<Song>,
     pub is_searching: bool,
     pub selected_index: usize,
-    #[allow(dead_code)]
-    pub scroll_offset: usize,
 }
 
 impl SearchState {
@@ -17,7 +15,6 @@ impl SearchState {
             search_results: Vec::new(),
             is_searching: false,
             selected_index: 0,
-            scroll_offset: 0,
         }
     }
 }
