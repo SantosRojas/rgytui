@@ -2,19 +2,15 @@ use super::*;
 
 impl App {
     pub(crate) fn update_progress(&mut self) {
-        let state = self.playback.state();
-        if let PlayerState::Playing | PlayerState::Paused = state
-            && self.playback.state() == PlayerState::Playing
-                && self.playback.is_sink_empty()
-            {
-                if let Err(e) = self.playback.stop() {
-                    tracing::warn!("Failed to stop on auto-advance: {}", e);
-                }
-
-                if let Some(next) = self.playlist.next().cloned() {
-                    self.queue_play(next);
-                }
+        if self.playback.state() == PlayerState::Playing && self.playback.is_sink_empty() {
+            if let Err(e) = self.playback.stop() {
+                tracing::warn!("Failed to stop on auto-advance: {}", e);
             }
+
+            if let Some(next) = self.playlist.next().cloned() {
+                self.queue_play(next);
+            }
+        }
     }
 
     /// Guard: skip re-play if the same song is already playing/paused/loading.
