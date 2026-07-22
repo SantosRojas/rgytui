@@ -12,7 +12,8 @@ use crate::application::search::SearchUseCase;
 pub(crate) use crate::domain::audio_mode::AudioMode;
 pub(crate) use crate::domain::media::Song;
 pub(crate) use crate::domain::player_state::PlayerState;
-pub(crate) use crate::infrastructure::config::store::AppSettings;
+pub(crate) use crate::infrastructure::audio::cache::AudioCache;
+use crate::infrastructure::config::store::AppSettings;
 use crate::interface::app_ui;
 pub(crate) use crate::interface::state::{ActiveScreen, ConfigState, Focus, NotificationLevel, RenderSnapshot, UiState};
 use ratatui::layout::Rect;
@@ -42,6 +43,7 @@ pub struct App {
     last_search: Option<Instant>,
     last_click: Option<(Instant, u16, u16)>,
     download_semaphore: Arc<Semaphore>,
+    audio_cache: Arc<AudioCache>,
 }
 
 impl App {
@@ -115,6 +117,7 @@ impl App {
             last_search: None,
             last_click: None,
             download_semaphore: Arc::new(Semaphore::new(3)),
+            audio_cache: Arc::new(AudioCache::new()),
         }
     }
 

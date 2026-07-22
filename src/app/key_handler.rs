@@ -557,6 +557,12 @@ impl App {
             KeyCode::Delete => {
                 if self.ui.focus == Focus::QueueList && !self.playlist.songs().is_empty() {
                     let idx = self.ui.queue.queue_selected;
+                    // Remove cached audio before removing from playlist
+                    if let Some(song) = self.playlist.songs().get(idx) {
+                        if let Err(e) = self.audio_cache.remove(&song.id) {
+                            tracing::warn!("Failed to remove cache for '{}': {e}", song.id);
+                        }
+                    }
                     self.playlist.remove(idx);
                 }
             }
@@ -579,6 +585,12 @@ impl App {
             }
             KeyCode::Char('C') | KeyCode::Char('c') => {
                 if self.ui.focus == Focus::QueueList {
+                    // Remove cached audio for all queued songs before clearing
+                    for song in self.playlist.songs() {
+                        if let Err(e) = self.audio_cache.remove(&song.id) {
+                            tracing::warn!("Failed to remove cache for '{}': {e}", song.id);
+                        }
+                    }
                     self.playlist.clear();
                 }
             }

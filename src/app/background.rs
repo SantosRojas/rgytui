@@ -48,16 +48,35 @@ impl App {
                     }
                 }
                 AudioMode::Audio => {
-                    // Audio mode: spawn download in background so UI keeps animating
+                    // Audio mode: check cache first, then download in background
                     let tx = self.event_tx.clone();
                     let url = song.webpage_url.clone();
                     let song_for_event = song.clone();
                     let token = self.cancel_token.clone();
+                    let cache = self.audio_cache.clone();
+                    let song_id = song.id.clone();
                     tokio::spawn(async move {
+                        // Fast path: try cache first (local read — no cancellation needed)
+                        match cache.get(&song_id).await {
+                            Ok(Some(data)) => {
+                                let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data });
+                                return;
+                            }
+                            Ok(None) => {} // cache miss → download
+                            Err(e) => {
+                                tracing::warn!("Cache read failed, falling back to download: {e}");
+                            }
+                        }
+
+                        // Slow path: download, save to cache, then play
                         tokio::select! {
                             result = PlaybackUseCase::download_audio_bytes(url) => {
                                 match result {
                                     Ok(data) => {
+                                        // Save to cache (best-effort — never fail playback on cache error)
+                                        if let Err(e) = cache.put(&song_id, &data).await {
+                                            tracing::warn!("Failed to cache audio: {e}");
+                                        }
                                         let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data });
                                     }
                                     Err(e) => {
