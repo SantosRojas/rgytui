@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
@@ -9,6 +9,15 @@ use crate::domain::error::DomainError;
 use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
 use crate::infrastructure::audio::spectrum::{SpectrumFrame, SpectrumSource};
+
+/// Lock a `Mutex<T>` and return a guard, logging a warning if the mutex was poisoned.
+/// This ensures thread-panic data corruption is never silently swallowed.
+fn lock_or_warn<'a, T>(m: &'a Mutex<T>, name: &str) -> MutexGuard<'a, T> {
+    m.lock().unwrap_or_else(|poisoned| {
+        tracing::warn!("Mutex '{}' was poisoned — recovering. Data may be stale.", name);
+        poisoned.into_inner()
+    })
+}
 
 pub struct RodioAdapter {
     _handle: rodio::MixerDeviceSink,
@@ -55,12 +64,12 @@ impl RodioAdapter {
 
         self.player.stop();
         self.player.append(source);
-        self.player.set_volume(*self.volume.lock().unwrap_or_else(|e| e.into_inner()));
+        self.player.set_volume(*lock_or_warn(&self.volume, "volume"));
 
-        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = PlayerState::Playing;
-        *self.current_song.lock().unwrap_or_else(|e| e.into_inner()) = Some(song);
-        *self.duration.lock().unwrap_or_else(|e| e.into_inner()) = total_duration;
-        *self.position.lock().unwrap_or_else(|e| e.into_inner()) = 0.0;
+        *lock_or_warn(&self.state, "state") = PlayerState::Playing;
+        *lock_or_warn(&self.current_song, "current_song") = Some(song);
+        *lock_or_warn(&self.duration, "duration") = total_duration;
+        *lock_or_warn(&self.position, "position") = 0.0;
 
         Ok(())
     }
@@ -81,66 +90,66 @@ impl RodioAdapter {
 
         self.player.stop();
         self.player.append(source);
-        self.player.set_volume(*self.volume.lock().unwrap_or_else(|e| e.into_inner()));
+        self.player.set_volume(*lock_or_warn(&self.volume, "volume"));
 
-        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = PlayerState::Playing;
-        *self.current_song.lock().unwrap_or_else(|e| e.into_inner()) = Some(song);
-        *self.duration.lock().unwrap_or_else(|e| e.into_inner()) = total_duration;
-        *self.position.lock().unwrap_or_else(|e| e.into_inner()) = 0.0;
+        *lock_or_warn(&self.state, "state") = PlayerState::Playing;
+        *lock_or_warn(&self.current_song, "current_song") = Some(song);
+        *lock_or_warn(&self.duration, "duration") = total_duration;
+        *lock_or_warn(&self.position, "position") = 0.0;
 
         Ok(())
     }
 
     pub fn get_spectrum(&self) -> SpectrumFrame {
-        *self.spectrum.lock().unwrap_or_else(|e| e.into_inner())
+        *lock_or_warn(&self.spectrum, "spectrum")
     }
 
     pub fn pause(&mut self) -> Result<(), DomainError> {
         self.player.pause();
-        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = PlayerState::Paused;
+        *lock_or_warn(&self.state, "state") = PlayerState::Paused;
         Ok(())
     }
 
     pub fn resume(&mut self) -> Result<(), DomainError> {
         self.player.play();
-        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = PlayerState::Playing;
+        *lock_or_warn(&self.state, "state") = PlayerState::Playing;
         Ok(())
     }
 
     pub fn stop(&mut self) -> Result<(), DomainError> {
         self.player.stop();
-        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = PlayerState::Stopped;
-        *self.position.lock().unwrap_or_else(|e| e.into_inner()) = 0.0;
+        *lock_or_warn(&self.state, "state") = PlayerState::Stopped;
+        *lock_or_warn(&self.position, "position") = 0.0;
         Ok(())
     }
 
     pub fn set_volume(&mut self, vol: f32) {
         let vol = vol.clamp(0.0, 1.0);
         self.player.set_volume(vol);
-        *self.volume.lock().unwrap_or_else(|e| e.into_inner()) = vol;
+        *lock_or_warn(&self.volume, "volume") = vol;
     }
 
     pub fn volume(&self) -> f32 {
-        *self.volume.lock().unwrap_or_else(|e| e.into_inner())
+        *lock_or_warn(&self.volume, "volume")
     }
 
     pub fn state(&self) -> PlayerState {
-        *self.state.lock().unwrap_or_else(|e| e.into_inner())
+        *lock_or_warn(&self.state, "state")
     }
 
     pub fn current_position(&self) -> f64 {
         let pos = self.player.get_pos().as_secs_f64();
-        *self.position.lock().unwrap_or_else(|e| e.into_inner()) = pos;
+        *lock_or_warn(&self.position, "position") = pos;
         pos
     }
 
     pub fn current_duration(&self) -> f64 {
-        *self.duration.lock().unwrap_or_else(|e| e.into_inner())
+        *lock_or_warn(&self.duration, "duration")
     }
 
     #[allow(dead_code)]
     pub fn current_song(&self) -> Option<Song> {
-        self.current_song.lock().ok().and_then(|s| s.clone())
+        lock_or_warn(&self.current_song, "current_song").as_ref().cloned()
     }
 
     pub fn is_sink_empty(&self) -> bool {
@@ -205,4 +214,28 @@ impl AudioPlaybackPort for RodioAdapter {
     fn get_spectrum(&self) -> SpectrumFrame {
         self.get_spectrum()
     }
+}
+
+/// A no-op audio backend used when the system has no audio output available.
+/// Allows the application to start and function (search, browse) without sound.
+pub struct NoopAudioAdapter;
+
+impl AudioPlaybackPort for NoopAudioAdapter {
+    fn play_file(&mut self, _path: &Path, _song: Song) -> Result<(), DomainError> {
+        Err(DomainError::Audio("No audio output available".into()))
+    }
+    fn play_bytes(&mut self, _data: Vec<u8>, _song: Song) -> Result<(), DomainError> {
+        Err(DomainError::Audio("No audio output available".into()))
+    }
+    fn pause(&mut self) -> Result<(), DomainError> { Ok(()) }
+    fn resume(&mut self) -> Result<(), DomainError> { Ok(()) }
+    fn stop(&mut self) -> Result<(), DomainError> { Ok(()) }
+    fn set_volume(&mut self, _vol: f32) {}
+    fn volume(&self) -> f32 { 0.8 }
+    fn state(&self) -> PlayerState { PlayerState::Stopped }
+    fn current_position(&self) -> f64 { 0.0 }
+    fn current_duration(&self) -> f64 { 0.0 }
+    fn is_sink_empty(&self) -> bool { true }
+    fn has_sink(&self) -> bool { false }
+    fn get_spectrum(&self) -> SpectrumFrame { SpectrumFrame::default() }
 }

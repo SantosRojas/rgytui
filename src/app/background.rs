@@ -10,10 +10,10 @@ impl App {
                 result = search_uc.execute(&query, limit) => {
                     match result {
                         Ok(songs) => {
-                            let _ = tx.send(AppEvent::SearchResults(songs));
+                            let _ = tx.send(AppEvent::SearchResults(songs)).await;
                         }
                         Err(e) => {
-                            let _ = tx.send(AppEvent::SearchError(e.to_string()));
+                            let _ = tx.send(AppEvent::SearchError(e.to_string())).await;
                         }
                     }
                 }
@@ -59,7 +59,7 @@ impl App {
                         // Fast path: try cache first (local read — no cancellation needed)
                         match cache.get(&song_id).await {
                             Ok(Some(data)) => {
-                                let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data });
+                                let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data }).await;
                                 return;
                             }
                             Ok(None) => {} // cache miss → download
@@ -77,10 +77,10 @@ impl App {
                                         if let Err(e) = cache.put(&song_id, &data).await {
                                             tracing::warn!("Failed to cache audio: {e}");
                                         }
-                                        let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data });
+                                        let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data }).await;
                                     }
                                     Err(e) => {
-                                        let _ = tx.send(AppEvent::AudioDownloadError(e.to_string()));
+                                        let _ = tx.send(AppEvent::AudioDownloadError(e.to_string())).await;
                                     }
                                 }
                             }
@@ -122,10 +122,10 @@ impl App {
                                 let _ = tx.send(AppEvent::DownloadComplete {
                                     song_title: song_title_clone,
                                     file_path: path,
-                                });
+                                }).await;
                             }
                             Err(e) => {
-                                let _ = tx.send(AppEvent::DownloadError(e.to_string()));
+                                let _ = tx.send(AppEvent::DownloadError(e.to_string())).await;
                             }
                         }
                     }

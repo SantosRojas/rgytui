@@ -30,7 +30,7 @@ impl App {
         // Ctrl+C — graceful exit (intercept before regular 'c' key dispatch)
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             if self.pending_play.is_some() || self.ui.download.download_pending.is_some() {
-                let _ = self.event_tx.send(AppEvent::ShowConfirmExit);
+                let _ = self.event_tx.send(AppEvent::ShowConfirmExit).await;
                 return Ok(false);
             }
             return Ok(true);
@@ -558,10 +558,9 @@ impl App {
                 if self.ui.focus == Focus::QueueList && !self.playlist.songs().is_empty() {
                     let idx = self.ui.queue.queue_selected;
                     // Remove cached audio before removing from playlist
-                    if let Some(song) = self.playlist.songs().get(idx) {
-                        if let Err(e) = self.audio_cache.remove(&song.id) {
+                    if let Some(song) = self.playlist.songs().get(idx)
+                        && let Err(e) = self.audio_cache.remove(&song.id) {
                             tracing::warn!("Failed to remove cache for '{}': {e}", song.id);
-                        }
                     }
                     self.playlist.remove(idx);
                 }

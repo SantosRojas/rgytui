@@ -35,9 +35,9 @@ pub struct App {
     playlist: PlaylistUseCase,
     config: Box<dyn ConfigPort>,
     settings: AppSettings,
-    input_rx: mpsc::UnboundedReceiver<InputEvent>,
-    event_tx: mpsc::UnboundedSender<AppEvent>,
-    event_rx: mpsc::UnboundedReceiver<AppEvent>,
+    input_rx: mpsc::Receiver<InputEvent>,
+    event_tx: mpsc::Sender<AppEvent>,
+    event_rx: mpsc::Receiver<AppEvent>,
     cancel_token: CancellationToken,
     pending_play: Option<Song>,
     last_search: Option<Instant>,
@@ -59,8 +59,10 @@ impl App {
             tracing::warn!("Failed to cleanup orphan temp files: {}", e);
         }
 
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
-        let (input_tx, input_rx) = mpsc::unbounded_channel();
+        // Bounded channels provide natural backpressure: if the main loop lags,
+        // the sender blocks (input thread via blocking_send, background tasks via .await).
+        let (event_tx, event_rx) = mpsc::channel(256);
+        let (input_tx, input_rx) = mpsc::channel(256);
 
         std::thread::spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| loop {
@@ -69,12 +71,13 @@ impl App {
                         if key.kind != KeyEventKind::Press {
                             continue;
                         }
-                        if input_tx.send(InputEvent::Key(key)).is_err() {
+                        // blocking_send provides backpressure: blocks when buffer is full
+                        if input_tx.blocking_send(InputEvent::Key(key)).is_err() {
                             break;
                         }
                     }
                     Ok(crossterm::event::Event::Mouse(mouse))
-                        if input_tx.send(InputEvent::Mouse(mouse)).is_err() => {
+                        if input_tx.blocking_send(InputEvent::Mouse(mouse)).is_err() => {
                             break;
                         }
                     _ => {}
@@ -342,11 +345,14 @@ pub fn cleanup_orphan_tempfiles() -> std::io::Result<()> {
 }
 
 /// Scan `dir` for files matching `rgytui-*` older than `max_age` and delete them.
+/// Scans at most `max_entries` entries to avoid blocking startup on temp dirs
+/// with thousands of files.
 /// Exposed as a separate function for testability.
 fn cleanup_tempfiles_in_dir<P: AsRef<std::path::Path>>(
     dir: P,
     max_age: std::time::Duration,
 ) -> std::io::Result<()> {
+    const MAX_SCAN: usize = 4096;
     let cutoff = std::time::SystemTime::now() - max_age;
 
     let entries = match std::fs::read_dir(&dir) {
@@ -354,7 +360,11 @@ fn cleanup_tempfiles_in_dir<P: AsRef<std::path::Path>>(
         Err(_) => return Ok(()),
     };
 
-    for entry in entries {
+    for (i, entry) in entries.enumerate() {
+        if i >= MAX_SCAN {
+            tracing::debug!("cleanup_tempfiles_in_dir: hit scan limit ({MAX_SCAN}), stopping");
+            break;
+        }
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
@@ -455,8 +465,11 @@ mod tests {
 
     #[test]
     fn test_cleanup_orphan_tempfiles_handles_empty_or_missing_dir() {
-        // Non-existent directory — should not panic
-        let bad_path = std::path::PathBuf::from(r"C:\ThisPathDoesNotExist_42");
+        // Non-existent directory — should not panic (cross-platform: any platform)
+        let bad_path = {
+            let tmp = tempfile::tempdir().unwrap();
+            tmp.path().join("nonexistent-subdir")
+        }; // tmp dropped → dir deleted, path guaranteed nonexistent
         let result = cleanup_tempfiles_in_dir(&bad_path, std::time::Duration::ZERO);
         assert!(result.is_ok(), "cleanup on missing dir should return Ok, got {:?}", result);
 

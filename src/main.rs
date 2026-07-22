@@ -17,7 +17,7 @@ use crate::application::ports::{AudioPlaybackPort, ConfigPort, DownloaderPort, I
 use crate::application::search::SearchUseCase;
 use crate::domain::audio_mode::AudioMode;
 use crate::infrastructure::audio::mpv_backend::MpvAdapter;
-use crate::infrastructure::audio::rodio_backend::RodioAdapter;
+use crate::infrastructure::audio::rodio_backend::{NoopAudioAdapter, RodioAdapter};
 use crate::infrastructure::config::store::ConfigAdapter;
 use crate::infrastructure::ytdlp::client::YtDlpAdapter;
 use crate::interface::i18n::Translations;
@@ -33,7 +33,14 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut config = ConfigAdapter::new().await.context("Failed to load config")?;
     let settings = config.settings().clone();
     let ytdlp = YtDlpAdapter::new();
-    let audio: Box<dyn AudioPlaybackPort> = Box::new(RodioAdapter::new().context("Failed to initialize audio output")?);
+    let audio: Box<dyn AudioPlaybackPort> = match RodioAdapter::new() {
+        Ok(a) => Box::new(a),
+        Err(e) => {
+            tracing::warn!("Audio output unavailable ({}), running without sound. Use audio mode  \
+                           to play audio once a device is available.", e);
+            Box::new(NoopAudioAdapter)
+        }
+    };
     let mpv = MpvAdapter::new();
 
     let mut playlist = PlaylistUseCase::new();

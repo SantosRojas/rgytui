@@ -57,6 +57,12 @@ impl PlaybackUseCase {
     pub async fn play(&mut self, song: &Song) -> Result<(), DomainError> {
         match self.mode {
             AudioMode::Video => {
+                if !MpvAdapter::is_mpv_installed() {
+                    return Err(DomainError::Player(
+                        "mpv no está instalado. Instalá mpv (https://mpv.io) para usar el modo video."
+                            .into(),
+                    ));
+                }
                 let stream_url = self.downloader.get_stream_url(&song.webpage_url, false).await?;
                 self.mpv.play_video(&stream_url, song.clone()).await?;
                 Ok(())
@@ -226,9 +232,12 @@ mod tests {
     #[tokio::test]
     async fn test_async_write_to_readonly_dir_returns_error() {
         // Verify that write failures produce an IO error
-        // Use a path that doesn't exist — should fail
-        let bad_path = std::path::Path::new("/nonexistent-root-dir-12345/test.bin");
-        let result = tokio::fs::write(bad_path, b"data").await;
+        // Use a path that doesn't exist — works on any platform
+        let bad_path = {
+            let tmp = tempfile::tempdir().unwrap();
+            tmp.path().join("nonexistent").join("test.bin")
+        };
+        let result = tokio::fs::write(&bad_path, b"data").await;
         assert!(result.is_err(), "write to non-existent path should fail");
     }
 }

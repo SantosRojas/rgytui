@@ -66,10 +66,17 @@ pub struct ConfigAdapter {
 
 impl ConfigAdapter {
     pub async fn new() -> Result<Self, DomainError> {
-        let proj_dirs = ProjectDirs::from("com", "rgytui", "rgytui")
-            .ok_or_else(|| DomainError::Other("Cannot determine config directory".into()))?;
-
-        let config_dir = proj_dirs.config_dir().to_path_buf();
+        let config_dir = ProjectDirs::from("com", "rgytui", "rgytui")
+            .map(|d| d.config_dir().to_path_buf())
+            .unwrap_or_else(|| {
+                // Fallback for sandboxed/container environments where ProjectDirs
+                // returns None (rootless containers, Flatpak/Snap, etc.)
+                let fallback = std::env::current_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                    .join(".rgytui");
+                tracing::warn!("ProjectDirs unavailable, falling back to {:?}", fallback);
+                fallback
+            });
         tokio::fs::create_dir_all(&config_dir).await?;
 
         let settings_path = config_dir.join("settings.json");
@@ -155,11 +162,7 @@ impl ConfigPort for ConfigAdapter {
     }
 
     async fn save_settings(&self, settings: &AppSettings) -> Result<(), DomainError> {
-        // Use the saved settings path; store the updated settings before saving
-        // We mutate through the inner lock-free path by writing to file
-        if let Some(parent) = self.settings_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
+        // Config dir is guaranteed to exist by ConfigAdapter::new().
         let content = serde_json::to_string_pretty(settings)?;
         tokio::fs::write(&self.settings_path, content).await?;
         Ok(())
@@ -170,9 +173,6 @@ impl ConfigPort for ConfigAdapter {
     }
 
     async fn save_playlist(&self, playlist: &Playlist) -> Result<(), DomainError> {
-        if let Some(parent) = self.playlists_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
         let content = serde_json::to_string_pretty(playlist)?;
         tokio::fs::write(&self.playlists_path, content).await?;
         Ok(())
