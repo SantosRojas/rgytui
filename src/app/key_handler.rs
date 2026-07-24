@@ -15,7 +15,7 @@ impl App {
                     self.ui.show_exit_confirmation = false;
                     Ok(true)
                 }
-                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
                     self.ui.show_exit_confirmation = false;
                     Ok(false)
                 }
@@ -104,7 +104,7 @@ impl App {
                     self.ui.download.show_download_popup = false;
                 }
             }
-            KeyCode::Esc => {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                 self.ui.download.show_download_popup = false;
             }
             _ => {}
@@ -114,7 +114,7 @@ impl App {
 
     fn handle_help_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
         match key.code {
-            KeyCode::Char('q') => {
+            KeyCode::Char('q') | KeyCode::Char('Q') => {
                 // q — close help (NOT exit app)
                 self.ui.active_screen = ActiveScreen::Search;
                 Ok(false)
@@ -129,7 +129,10 @@ impl App {
 
     async fn handle_settings_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
         match key.code {
-            KeyCode::Char('q') => return Ok(true),
+            KeyCode::Char('q') | KeyCode::Char('Q') => {
+                self.ui.active_screen = ActiveScreen::Search;
+                self.ui.focus = Focus::SearchInput;
+            }
             KeyCode::Esc => {
                 self.ui.active_screen = ActiveScreen::Search;
                 self.ui.focus = Focus::SearchInput;
@@ -290,7 +293,7 @@ impl App {
                     NotificationLevel::Info,
                 );
             }
-            KeyCode::Char('q') => {
+            KeyCode::Char('q') | KeyCode::Char('Q') => {
                 // q — exit player, return to search
                 self.ui.active_screen = ActiveScreen::Search;
                 self.ui.focus = Focus::SearchInput;
@@ -604,7 +607,7 @@ impl App {
                 self.ui.active_screen = ActiveScreen::Settings;
                 self.ui.focus = Focus::SearchInput;
             }
-            KeyCode::Char('q') => return Ok(true),
+            KeyCode::Char('q') | KeyCode::Char('Q') => return Ok(true),
             _ => {}
         }
 
