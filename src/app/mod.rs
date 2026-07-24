@@ -148,9 +148,9 @@ impl App {
         loop {
             self.ui.dismiss_old_notifications();
 
-            // Disable spectrum FFT when not on the player screen to save CPU.
+            // Enable spectrum FFT while a song is loaded (both hybrid and full-screen player).
             self.playback
-                .set_spectrum_enabled(self.ui.active_screen == ActiveScreen::Player);
+                .set_spectrum_enabled(self.ui.player.current_song.is_some());
 
             let theme = self.ui.get_or_create_theme();
             let render_state = RenderSnapshot::from_use_cases(&self.playback, &mut self.playlist);
