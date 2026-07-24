@@ -1,5 +1,6 @@
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
@@ -8,26 +9,25 @@ use crate::application::ports::AudioPlaybackPort;
 use crate::domain::error::DomainError;
 use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
-use crate::infrastructure::audio::spectrum::{SpectrumFrame, SpectrumSource};
 
-/// Lock a `Mutex<T>` and return a guard, logging a warning if the mutex was poisoned.
-/// This ensures thread-panic data corruption is never silently swallowed.
-fn lock_or_warn<'a, T>(m: &'a Mutex<T>, name: &str) -> MutexGuard<'a, T> {
-    m.lock().unwrap_or_else(|poisoned| {
-        tracing::warn!("Mutex '{}' was poisoned — recovering. Data may be stale.", name);
-        poisoned.into_inner()
-    })
+use crate::infrastructure::audio::spectrum::{SpectrumFrame, SpectrumSource};
+use crate::shared::sync::lock_or_warn;
+
+/// Shared state fields wrapped in a single Mutex to reduce lock overhead.
+/// `spectrum` lives separately because `SpectrumSource` holds a reference to it.
+struct SharedState {
+    state: PlayerState,
+    volume: f32,
+    position: f64,
+    duration: f64,
 }
 
 pub struct RodioAdapter {
     _handle: rodio::MixerDeviceSink,
     player: Player,
-    state: Arc<Mutex<PlayerState>>,
-    volume: Arc<Mutex<f32>>,
-    current_song: Arc<Mutex<Option<Song>>>,
-    position: Arc<Mutex<f64>>,
-    duration: Arc<Mutex<f64>>,
+    shared: Arc<Mutex<SharedState>>,
     spectrum: Arc<Mutex<SpectrumFrame>>,
+    spectrum_enabled: Arc<AtomicBool>,
 }
 
 impl RodioAdapter {
@@ -40,16 +40,22 @@ impl RodioAdapter {
         Ok(Self {
             _handle: handle,
             player,
-            state: Arc::new(Mutex::new(PlayerState::Idle)),
-            volume: Arc::new(Mutex::new(0.8)),
-            current_song: Arc::new(Mutex::new(None)),
-            position: Arc::new(Mutex::new(0.0)),
-            duration: Arc::new(Mutex::new(0.0)),
+            shared: Arc::new(Mutex::new(SharedState {
+                state: PlayerState::Idle,
+                volume: 0.8,
+                position: 0.0,
+                duration: 0.0,
+            })),
             spectrum: Arc::new(Mutex::new(SpectrumFrame::default())),
+            spectrum_enabled: Arc::new(AtomicBool::new(true)),
         })
     }
 
-    pub fn play_file(&mut self, path: &Path, song: Song) -> Result<(), DomainError> {
+    fn shared_mut(&self) -> std::sync::MutexGuard<'_, SharedState> {
+        lock_or_warn(&self.shared, "rodio_shared")
+    }
+
+    pub fn play_file(&mut self, path: &Path, _song: Song) -> Result<(), DomainError> {
         let file = std::fs::File::open(path)?;
         let decoder =
             Decoder::new(file).map_err(|e| DomainError::Audio(format!("Decode error: {}", e)))?;
@@ -59,23 +65,23 @@ impl RodioAdapter {
             .unwrap_or(Duration::from_secs(0))
             .as_secs_f64();
 
-        let (source, frame) = SpectrumSource::new(decoder);
-        self.spectrum = frame;
+        let (source, new_spectrum) = SpectrumSource::new(decoder, self.spectrum_enabled.clone());
+        self.spectrum = new_spectrum;
 
         self.player.stop();
         self.player.append(source);
-        self.player.set_volume(*lock_or_warn(&self.volume, "volume"));
 
-        *lock_or_warn(&self.state, "state") = PlayerState::Playing;
-        *lock_or_warn(&self.current_song, "current_song") = Some(song);
-        *lock_or_warn(&self.duration, "duration") = total_duration;
-        *lock_or_warn(&self.position, "position") = 0.0;
+        let mut s = self.shared_mut();
+        self.player.set_volume(s.volume);
+        s.state = PlayerState::Playing;
+        s.position = 0.0;
+        s.duration = total_duration;
 
         Ok(())
     }
 
     /// Play audio from in-memory bytes (used when download completes in background).
-    pub fn play_bytes(&mut self, data: Vec<u8>, song: Song) -> Result<(), DomainError> {
+    pub fn play_bytes(&mut self, data: Vec<u8>, _song: Song) -> Result<(), DomainError> {
         let cursor = std::io::Cursor::new(data);
         let decoder =
             Decoder::new(cursor).map_err(|e| DomainError::Audio(format!("Decode error: {}", e)))?;
@@ -85,17 +91,17 @@ impl RodioAdapter {
             .unwrap_or(Duration::from_secs(0))
             .as_secs_f64();
 
-        let (source, frame) = SpectrumSource::new(decoder);
-        self.spectrum = frame;
+        let (source, new_spectrum) = SpectrumSource::new(decoder, self.spectrum_enabled.clone());
+        self.spectrum = new_spectrum;
 
         self.player.stop();
         self.player.append(source);
-        self.player.set_volume(*lock_or_warn(&self.volume, "volume"));
 
-        *lock_or_warn(&self.state, "state") = PlayerState::Playing;
-        *lock_or_warn(&self.current_song, "current_song") = Some(song);
-        *lock_or_warn(&self.duration, "duration") = total_duration;
-        *lock_or_warn(&self.position, "position") = 0.0;
+        let mut s = self.shared_mut();
+        self.player.set_volume(s.volume);
+        s.state = PlayerState::Playing;
+        s.position = 0.0;
+        s.duration = total_duration;
 
         Ok(())
     }
@@ -106,59 +112,54 @@ impl RodioAdapter {
 
     pub fn pause(&mut self) -> Result<(), DomainError> {
         self.player.pause();
-        *lock_or_warn(&self.state, "state") = PlayerState::Paused;
+        self.shared_mut().state = PlayerState::Paused;
         Ok(())
     }
 
     pub fn resume(&mut self) -> Result<(), DomainError> {
         self.player.play();
-        *lock_or_warn(&self.state, "state") = PlayerState::Playing;
+        self.shared_mut().state = PlayerState::Playing;
         Ok(())
     }
 
     pub fn stop(&mut self) -> Result<(), DomainError> {
         self.player.stop();
-        *lock_or_warn(&self.state, "state") = PlayerState::Stopped;
-        *lock_or_warn(&self.position, "position") = 0.0;
+        let mut s = self.shared_mut();
+        s.state = PlayerState::Stopped;
+        s.position = 0.0;
         Ok(())
     }
 
     pub fn set_volume(&mut self, vol: f32) {
         let vol = vol.clamp(0.0, 1.0);
         self.player.set_volume(vol);
-        *lock_or_warn(&self.volume, "volume") = vol;
+        self.shared_mut().volume = vol;
     }
 
     pub fn volume(&self) -> f32 {
-        *lock_or_warn(&self.volume, "volume")
+        self.shared_mut().volume
     }
 
     pub fn state(&self) -> PlayerState {
-        *lock_or_warn(&self.state, "state")
+        self.shared_mut().state
     }
 
     pub fn current_position(&self) -> f64 {
         let pos = self.player.get_pos().as_secs_f64();
-        *lock_or_warn(&self.position, "position") = pos;
+        self.shared_mut().position = pos;
         pos
     }
 
     pub fn current_duration(&self) -> f64 {
-        *lock_or_warn(&self.duration, "duration")
-    }
-
-    #[allow(dead_code)]
-    pub fn current_song(&self) -> Option<Song> {
-        lock_or_warn(&self.current_song, "current_song").as_ref().cloned()
+        self.shared_mut().duration
     }
 
     pub fn is_sink_empty(&self) -> bool {
         self.player.empty()
     }
 
-    #[allow(dead_code)]
-    pub fn has_sink(&self) -> bool {
-        !self.player.empty()
+    pub fn set_spectrum_enabled(&mut self, enabled: bool) {
+        self.spectrum_enabled.store(enabled, Ordering::Relaxed);
     }
 }
 
@@ -207,12 +208,12 @@ impl AudioPlaybackPort for RodioAdapter {
         self.is_sink_empty()
     }
 
-    fn has_sink(&self) -> bool {
-        self.has_sink()
-    }
-
     fn get_spectrum(&self) -> SpectrumFrame {
         self.get_spectrum()
+    }
+
+    fn set_spectrum_enabled(&mut self, enabled: bool) {
+        self.set_spectrum_enabled(enabled);
     }
 }
 
@@ -236,6 +237,6 @@ impl AudioPlaybackPort for NoopAudioAdapter {
     fn current_position(&self) -> f64 { 0.0 }
     fn current_duration(&self) -> f64 { 0.0 }
     fn is_sink_empty(&self) -> bool { true }
-    fn has_sink(&self) -> bool { false }
     fn get_spectrum(&self) -> SpectrumFrame { SpectrumFrame::default() }
+    fn set_spectrum_enabled(&mut self, _enabled: bool) {}
 }

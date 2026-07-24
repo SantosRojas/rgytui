@@ -9,18 +9,17 @@ pub enum InputEvent {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub enum AppEvent {
     SearchResults(Vec<Song>),
     SearchError(String),
-    PlaybackStarted(Song),
+    /// Emitted when a song finishes naturally (used for auto-advance).
+    /// Wired up for future background detection — currently unused in favor
+    /// of the poll-based advance in `update_progress()`.
+    #[allow(dead_code)]
     PlaybackFinished,
-    PlaybackPaused,
-    PlaybackResumed,
-    PlaybackStopped,
+    #[allow(dead_code)]
     PlaybackError(String),
-    VolumeChanged(f32),
-    DownloadComplete { song_title: String, #[allow(dead_code)] file_path: String },
+    DownloadComplete { song_title: String },
     DownloadError(String),
     /// Audio bytes are ready for playback (downloaded in background).
     AudioReady { song: Song, data: Vec<u8> },
@@ -28,5 +27,4 @@ pub enum AppEvent {
     AudioDownloadError(String),
     /// Show a confirmation dialog when Ctrl+C is pressed during an active download.
     ShowConfirmExit,
-    Exit,
 }

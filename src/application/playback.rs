@@ -1,6 +1,4 @@
-use std::process::Stdio;
 use std::sync::Arc;
-use std::time::Duration;
 
 use tempfile::NamedTempFile;
 
@@ -59,7 +57,7 @@ impl PlaybackUseCase {
             AudioMode::Video => {
                 if !MpvAdapter::is_mpv_installed() {
                     return Err(DomainError::Player(
-                        "mpv no está instalado. Instalá mpv (https://mpv.io) para usar el modo video."
+                        "mpv is not installed. Install mpv (https://mpv.io) to use video mode."
                             .into(),
                     ));
                 }
@@ -79,29 +77,10 @@ impl PlaybackUseCase {
         // Assign temp_file immediately so Drop cleans up on early error return.
         self.temp_file = Some(tmp);
 
-        let output = tokio::time::timeout(
-            Duration::from_secs(120),
-            tokio::process::Command::new("yt-dlp")
-                .arg("-f")
-                .arg("bestaudio[ext=m4a]/bestaudio/best")
-                .arg("-o")
-                .arg("-")
-                .arg("--no-playlist")
-                .arg(&song.webpage_url)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .output(),
-        )
-        .await
-            .map_err(|_| DomainError::YtDlp("Audio download timed out after 120s".into()))?
-            .map_err(|e| DomainError::YtDlp(format!("Failed to run yt-dlp: {}", e)))?;
+        // Delegate download to the discrete DownloaderPort (no duplicate yt-dlp command).
+        let data = self.downloader.download_audio_bytes(&song.webpage_url).await?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(DomainError::YtDlp(format!("Audio download failed: {}", stderr)));
-        }
-
-        tokio::fs::write(&path, &output.stdout).await?;
+        tokio::fs::write(&path, &data).await?;
         self.audio.play_file(&path, song.clone())?;
 
         Ok(())
@@ -114,33 +93,6 @@ impl PlaybackUseCase {
 
     pub fn downloader_clone(&self) -> Arc<dyn DownloaderPort> {
         self.downloader.clone()
-    }
-
-    /// Download audio bytes in the background. Returns raw bytes suitable for play_bytes().
-    pub async fn download_audio_bytes(url: String) -> Result<Vec<u8>, DomainError> {
-        let output = tokio::time::timeout(
-            Duration::from_secs(120),
-            tokio::process::Command::new("yt-dlp")
-                .arg("-f")
-                .arg("bestaudio[ext=m4a]/bestaudio/best")
-                .arg("-o")
-                .arg("-")
-                .arg("--no-playlist")
-                .arg(&url)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .output(),
-        )
-        .await
-            .map_err(|_| DomainError::YtDlp("Audio download timed out after 120s".into()))?
-            .map_err(|e| DomainError::YtDlp(format!("Failed to run yt-dlp: {}", e)))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(DomainError::YtDlp(format!("Audio download failed: {}", stderr)));
-        }
-
-        Ok(output.stdout)
     }
 
     pub fn pause(&mut self) -> Result<(), DomainError> {
@@ -180,19 +132,12 @@ impl PlaybackUseCase {
         self.audio.is_sink_empty()
     }
 
-    #[allow(dead_code)]
-    pub fn has_sink(&self) -> bool {
-        self.audio.has_sink()
-    }
-
     pub fn get_spectrum(&self) -> SpectrumFrame {
         self.audio.get_spectrum()
     }
 
-    #[allow(dead_code)]
-    pub async fn download_song(&self, song: &Song, output_dir: &str, audio_format: &str) -> Result<String, DomainError> {
-        tokio::fs::create_dir_all(output_dir).await?;
-        self.downloader.download(&song.webpage_url, output_dir, audio_format).await
+    pub fn set_spectrum_enabled(&mut self, enabled: bool) {
+        self.audio.set_spectrum_enabled(enabled);
     }
 }
 

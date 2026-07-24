@@ -1,49 +1,11 @@
 use std::path::PathBuf;
 
 use directories::ProjectDirs;
-use serde::{Deserialize, Serialize};
 
 use crate::application::ports::ConfigPort;
 use crate::domain::error::DomainError;
-use crate::domain::loading_animation::LoadingAnimation;
 use crate::domain::media::Playlist;
-
-fn default_language() -> String {
-    "en".into()
-}
-
-fn default_loading_animation() -> String {
-    LoadingAnimation::Wave.as_str().into()
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AppSettings {
-    pub volume: f32,
-    pub audio_mode: bool,
-    pub default_search_limit: usize,
-    pub theme: String,
-    pub accent_color: String,
-    pub download_path: String,
-    #[serde(default = "default_language")]
-    pub language: String,
-    #[serde(default = "default_loading_animation")]
-    pub loading_animation: String,
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            volume: 0.8,
-            audio_mode: false,
-            default_search_limit: 10,
-            theme: "dark".into(),
-            accent_color: "#00ffff".into(),
-            download_path: default_download_path(),
-            language: "en".into(),
-            loading_animation: default_loading_animation(),
-        }
-    }
-}
+use crate::domain::settings::AppSettings;
 
 fn default_download_path() -> String {
     dirs::audio_dir()
@@ -90,7 +52,7 @@ impl ConfigAdapter {
         let settings_path = config_dir.join("settings.json");
         let playlists_path = config_dir.join("playlist.json");
 
-        let settings = if settings_path.exists() {
+        let mut settings = if settings_path.exists() {
             let content = tokio::fs::read_to_string(&settings_path).await?;
             match serde_json::from_str(&content) {
                 Ok(s) => s,
@@ -103,6 +65,11 @@ impl ConfigAdapter {
             AppSettings::default()
         };
 
+        // Fill in default download path if not set (from file or domain default)
+        if settings.download_path.is_empty() {
+            settings.download_path = default_download_path();
+        }
+
         Ok(Self {
             settings_path,
             playlists_path,
@@ -110,17 +77,14 @@ impl ConfigAdapter {
         })
     }
 
-    #[allow(dead_code)]
     pub fn settings(&self) -> &AppSettings {
         &self.settings
     }
 
-    #[allow(dead_code)]
     pub fn settings_mut(&mut self) -> &mut AppSettings {
         &mut self.settings
     }
 
-    #[allow(dead_code)]
     pub async fn save_settings(&self) -> Result<(), DomainError> {
         // Ensure parent directory exists before writing
         if let Some(parent) = self.settings_path.parent() {
@@ -128,17 +92,6 @@ impl ConfigAdapter {
         }
         let content = serde_json::to_string_pretty(&self.settings)?;
         tokio::fs::write(&self.settings_path, content).await?;
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    pub async fn save_playlist(&self, playlist: &Playlist) -> Result<(), DomainError> {
-        // Ensure parent directory exists before writing
-        if let Some(parent) = self.playlists_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        let content = serde_json::to_string_pretty(playlist)?;
-        tokio::fs::write(&self.playlists_path, content).await?;
         Ok(())
     }
 
@@ -174,10 +127,6 @@ impl ConfigPort for ConfigAdapter {
         let content = serde_json::to_string_pretty(settings)?;
         tokio::fs::write(&self.settings_path, content).await?;
         Ok(())
-    }
-
-    async fn load_playlist(&self) -> Result<Playlist, DomainError> {
-        Ok(self.load_playlist().await)
     }
 
     async fn save_playlist(&self, playlist: &Playlist) -> Result<(), DomainError> {

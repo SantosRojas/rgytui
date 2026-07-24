@@ -29,12 +29,6 @@ impl ProgressBar {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn block(mut self, block: Block<'static>) -> Self {
-        self.block = Some(block);
-        self
-    }
-
     pub fn progress(mut self, progress: f32) -> Self {
         self.progress = progress.clamp(0.0, 100.0);
         self

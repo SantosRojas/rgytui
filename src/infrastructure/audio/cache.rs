@@ -17,7 +17,6 @@ pub struct AudioCache {
     cache_dir: PathBuf,
 }
 
-#[allow(dead_code)]
 impl AudioCache {
     /// Create a cache using the platform-standard cache directory.
     ///
@@ -30,6 +29,7 @@ impl AudioCache {
     }
 
     /// Create a cache at a specific path (useful in tests).
+    #[allow(dead_code)]
     pub fn with_dir(path: PathBuf) -> Self {
         Self { cache_dir: path }
     }
@@ -43,6 +43,7 @@ impl AudioCache {
     }
 
     /// Check whether audio for a given song is already cached.
+    #[allow(dead_code)]
     pub fn is_cached(&self, song_id: &str) -> bool {
         self.song_path(song_id).exists()
     }
@@ -81,6 +82,7 @@ impl AudioCache {
     }
 
     /// Remove every cached audio file by destroying and recreating the cache directory.
+    #[allow(dead_code)]
     pub fn clear(&self) -> Result<(), DomainError> {
         if self.cache_dir.exists() {
             std::fs::remove_dir_all(&self.cache_dir)
@@ -92,6 +94,7 @@ impl AudioCache {
     }
 
     /// Return the total size (in bytes) of all cached files.
+    #[allow(dead_code)]
     pub async fn total_size(&self) -> Result<u64, DomainError> {
         if !self.cache_dir.exists() {
             return Ok(0);

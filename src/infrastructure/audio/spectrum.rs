@@ -1,11 +1,14 @@
+use std::collections::HashMap;
 use std::num::NonZero;
-use std::sync::{Arc, Mutex};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use num_complex::Complex;
 use rodio::Source;
 use rustfft::{Fft, FftPlanner};
+
+use crate::shared::sync::lock_or_warn;
 
 // Re-export types moved to shared::spectrum for backward compatibility.
 pub use crate::shared::spectrum::{BANDS, SpectrumFrame};
@@ -47,6 +50,15 @@ fn compute_band_to_bin(sample_rate: u32) -> [f32; BANDS] {
     band_to_bin
 }
 
+fn get_or_init_band_to_bin(sample_rate: u32) -> [f32; BANDS] {
+    static CACHE: OnceLock<Mutex<HashMap<u32, [f32; BANDS]>>> = OnceLock::new();
+    let mut cache = CACHE
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    *cache.entry(sample_rate).or_insert_with(|| compute_band_to_bin(sample_rate))
+}
+
 fn get_fft_plan() -> Arc<dyn Fft<f32>> {
     static FFT_PLAN: OnceLock<Arc<dyn Fft<f32>>> = OnceLock::new();
     FFT_PLAN
@@ -67,14 +79,15 @@ pub struct SpectrumSource<S: Source<Item = f32>> {
     fft_buf: Vec<Complex<f32>>,
     norm_peak: [f32; BANDS],
     vis_peak: [f32; BANDS],
+    enabled: Arc<AtomicBool>,
 }
 
 impl<S: Source<Item = f32>> SpectrumSource<S> {
-    pub fn new(source: S) -> (Self, Arc<Mutex<SpectrumFrame>>) {
+    pub fn new(source: S, enabled: Arc<AtomicBool>) -> (Self, Arc<Mutex<SpectrumFrame>>) {
         let frame = Arc::new(Mutex::new(SpectrumFrame::default()));
         let sr = source.sample_rate().get();
         let fft = get_fft_plan();
-        let band_to_bin = compute_band_to_bin(sr);
+        let band_to_bin = get_or_init_band_to_bin(sr);
         let this = Self {
             inner: source,
             frame: frame.clone(),
@@ -85,11 +98,16 @@ impl<S: Source<Item = f32>> SpectrumSource<S> {
             fft_buf: vec![Complex::new(0.0, 0.0); FFT_SIZE],
             norm_peak: [0.0; BANDS],
             vis_peak: [0.0; BANDS],
+            enabled,
         };
         (this, frame)
     }
 
     fn flush_buffer(&mut self) {
+        // Skip FFT computation when spectrum visualization is disabled.
+        if !self.enabled.load(Ordering::Relaxed) {
+            return;
+        }
         let window = hann_window();
         for (i, &s) in self.buffer.iter().enumerate() {
             self.fft_buf[i] = Complex::new(s * window[i], 0.0);
@@ -102,13 +120,7 @@ impl<S: Source<Item = f32>> SpectrumSource<S> {
             *val = self.fft_buf[bin].norm().sqrt();
         }
 
-        let mut frame = match self.frame.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                tracing::warn!("Spectrum mutex poisoned — visualization may be stale");
-                return;
-            }
-        };
+        let mut frame = lock_or_warn(&self.frame, "spectrum");
         for i in 0..BANDS {
             // Linearly interpolate the magnitude from the surrounding FFT bins
             let bin_pos = self.band_to_bin[i];

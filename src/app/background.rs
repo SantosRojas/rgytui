@@ -55,6 +55,7 @@ impl App {
                     let token = self.cancel_token.clone();
                     let cache = self.audio_cache.clone();
                     let song_id = song.id.clone();
+                    let downloader = self.playback.downloader_clone();
                     tokio::spawn(async move {
                         // Fast path: try cache first (local read — no cancellation needed)
                         match cache.get(&song_id).await {
@@ -70,7 +71,7 @@ impl App {
 
                         // Slow path: download, save to cache, then play
                         tokio::select! {
-                            result = PlaybackUseCase::download_audio_bytes(url) => {
+                            result = downloader.download_audio_bytes(&url) => {
                                 match result {
                                     Ok(data) => {
                                         // Save to cache (best-effort — never fail playback on cache error)
@@ -118,10 +119,9 @@ impl App {
                         ytdlp.download(&song.webpage_url, &dir, &fmt).await
                     } => {
                         match result {
-                            Ok(path) => {
+                            Ok(_path) => {
                                 let _ = tx.send(AppEvent::DownloadComplete {
                                     song_title: song_title_clone,
-                                    file_path: path,
                                 }).await;
                             }
                             Err(e) => {

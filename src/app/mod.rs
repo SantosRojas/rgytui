@@ -13,7 +13,7 @@ pub(crate) use crate::domain::audio_mode::AudioMode;
 pub(crate) use crate::domain::media::Song;
 pub(crate) use crate::domain::player_state::PlayerState;
 pub(crate) use crate::infrastructure::audio::cache::AudioCache;
-use crate::infrastructure::config::store::AppSettings;
+use crate::domain::settings::AppSettings;
 use crate::interface::app_ui;
 pub(crate) use crate::interface::state::{ActiveScreen, ConfigState, Focus, NotificationLevel, RenderSnapshot, UiState};
 use ratatui::layout::Rect;
@@ -148,8 +148,12 @@ impl App {
         loop {
             self.ui.dismiss_old_notifications();
 
+            // Disable spectrum FFT when not on the player screen to save CPU.
+            self.playback
+                .set_spectrum_enabled(self.ui.active_screen == ActiveScreen::Player);
+
             let theme = self.ui.get_or_create_theme();
-            let render_state = RenderSnapshot::from_use_cases(&self.playback, &self.playlist);
+            let render_state = RenderSnapshot::from_use_cases(&self.playback, &mut self.playlist);
             terminal.draw(|frame| {
                 app_ui::render(frame, &self.ui, &render_state, &theme);
             })?;

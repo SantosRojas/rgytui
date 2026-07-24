@@ -5,7 +5,6 @@ use crate::application::ports::I18nPort;
 #[derive(Clone, Debug)]
 pub struct Translations {
     map: HashMap<String, String>,
-    #[allow(dead_code)]
     language: String,
 }
 
@@ -39,19 +38,6 @@ impl Translations {
             map,
             language: lang.to_string(),
         }
-    }
-
-    /// Load translations, auto-detecting the locale from the system.
-    /// Falls back to English if detection fails or the locale is unsupported.
-    #[allow(dead_code)]
-    pub fn load_auto() -> Self {
-        let lang = Self::detect_locale();
-        Self::load(&lang)
-    }
-
-    #[allow(dead_code)]
-    pub fn language(&self) -> &str {
-        &self.language
     }
 
     pub fn t(&self, key: &str) -> String {
@@ -104,10 +90,13 @@ mod tests {
 
     #[test]
     fn test_load_auto_detects_locale() {
-        let t = Translations::load_auto();
-        assert!(!t.language().is_empty(), "auto-detected language should not be empty");
-        assert!(t.language() == "en" || t.language() == "es",
-            "auto-detected language should be 'en' or 'es', got '{}'", t.language());
+        // Use I18nPort trait to test language
+        use crate::application::ports::I18nPort;
+        let t = Translations::load(&Translations::detect_locale());
+        let lang = t.language();
+        assert!(!lang.is_empty(), "auto-detected language should not be empty");
+        assert!(lang == "en" || lang == "es",
+            "auto-detected language should be 'en' or 'es', got '{}'", lang);
         // Translations should be loaded correctly
         let subtitle = t.t("app_subtitle");
         assert!(!subtitle.is_empty(), "auto-loaded translations should have 'app_subtitle' key");
@@ -115,6 +104,7 @@ mod tests {
 
     #[test]
     fn test_language_getter() {
+        use crate::application::ports::I18nPort;
         let t = Translations::load("es");
         assert_eq!(t.language(), "es");
         let t = Translations::load("en");

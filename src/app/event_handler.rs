@@ -21,23 +21,10 @@ impl App {
                     NotificationLevel::Error,
                 );
             }
-            AppEvent::PlaybackStarted(song) => {
-                self.ui.player.current_song = Some(song);
-                self.ui.search.is_searching = false;
-            }
             AppEvent::PlaybackFinished => {
                 if let Some(next) = self.playlist.next().cloned() {
                     self.queue_play(next);
                 }
-            }
-            AppEvent::PlaybackPaused => {
-                // State is read from playback use case via RenderSnapshot
-            }
-            AppEvent::PlaybackResumed => {
-                // State is read from playback use case via RenderSnapshot
-            }
-            AppEvent::PlaybackStopped => {
-                // State is read from playback use case via RenderSnapshot
             }
             AppEvent::PlaybackError(err) => {
                 self.ui.push_notification(
@@ -46,14 +33,7 @@ impl App {
                 );
                 self.ui.player.current_song = None;
             }
-            AppEvent::VolumeChanged(vol) => {
-                self.playback.set_volume(vol);
-                self.ui.push_notification(
-                    self.ui.tr("notif_volume").replace("{:.0}", &format!("{:.0}", vol * 100.0)),
-                    NotificationLevel::Info,
-                );
-            }
-            AppEvent::DownloadComplete { song_title, file_path: _ } => {
+            AppEvent::DownloadComplete { song_title } => {
                 self.ui.push_notification(
                     self.ui.tr("notif_downloaded").replace("{}", &song_title),
                     NotificationLevel::Success,
@@ -94,9 +74,6 @@ impl App {
                     self.ui.tr("confirm_exit"),
                     NotificationLevel::Warning,
                 );
-            }
-            AppEvent::Exit => {
-                tracing::info!("Exit event received — triggering cleanup");
             }
         }
     }

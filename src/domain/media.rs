@@ -136,11 +136,6 @@ impl Playlist {
         self.songs.len()
     }
 
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.songs.is_empty()
-    }
-
     pub fn songs(&self) -> &[Song] {
         &self.songs
     }
@@ -148,17 +143,6 @@ impl Playlist {
     pub fn set_current_index(&mut self, index: usize) {
         if index < self.songs.len() {
             self.current_index = index;
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn insert(&mut self, index: usize, song: Song) {
-        if index <= self.songs.len() {
-            self.songs.insert(index, song);
-            if index <= self.current_index {
-                self.current_index += 1;
-            }
-            self.version = self.version.wrapping_add(1);
         }
     }
 }

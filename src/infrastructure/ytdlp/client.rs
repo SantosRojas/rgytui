@@ -182,43 +182,12 @@ impl YtDlpAdapter {
         Ok(filepath)
     }
 
-    #[allow(dead_code)]
-    pub async fn get_metadata(&self, url: &str) -> Result<Song, DomainError> {
-        let output = tokio::time::timeout(
-            Duration::from_secs(30),
-            Command::new("yt-dlp")
-                .arg("--dump-json")
-                .arg("--no-download")
-                .arg(url)
-                .output(),
-        )
-        .await
-            .map_err(|_| DomainError::YtDlp("yt-dlp metadata timed out after 30s".into()))?
-            .map_err(|e| DomainError::YtDlp(format!("Failed to get metadata: {}", e)))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(DomainError::YtDlp(format!(
-                "Failed to get metadata: {}",
-                stderr
-            )));
-        }
-
-        let stdout = std::str::from_utf8(&output.stdout)
-            .map_err(|e| DomainError::Parse(format!("Invalid UTF-8: {}", e)))?;
-        let raw: RawSong = serde_json::from_str(stdout.trim())?;
-        Ok(Song::from(raw))
-    }
 }
 
 #[async_trait::async_trait]
 impl MediaSearchPort for YtDlpAdapter {
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<Song>, DomainError> {
         self.search(query, limit).await
-    }
-
-    async fn get_stream_url(&self, url: &str, audio_only: bool) -> Result<String, DomainError> {
-        self.get_stream_url(url, audio_only).await
     }
 }
 

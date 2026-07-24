@@ -13,25 +13,9 @@ fn parse_hex(hex: &str) -> Color {
     }
 }
 
-/// Attenuate an RGB color by a factor (0.0 = black, 1.0 = original).
-fn dim_color(color: Color, factor: f32) -> Color {
-    match color {
-        Color::Rgb(r, g, b) => Color::Rgb(
-            (r as f32 * factor) as u8,
-            (g as f32 * factor) as u8,
-            (b as f32 * factor) as u8,
-        ),
-        other => other,
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct Theme {
     pub accent: Color,
-    #[allow(dead_code)]
-    pub accent_dim: Color,
-    #[allow(dead_code)]
-    pub bg: Color,
     pub text: Color,
     pub text_secondary: Color,
     pub text_muted: Color,
@@ -49,12 +33,9 @@ pub struct Theme {
 impl Theme {
     pub fn from_settings(theme: &str, accent_hex: &str) -> Self {
         let accent = parse_hex(accent_hex);
-        let accent_dim = dim_color(accent, 0.45);
         match theme {
             "light" => Self {
                 accent,
-                accent_dim,
-                bg: Color::White,
                 text: Color::Black,
                 text_secondary: Color::Rgb(100, 100, 100),
                 text_muted: Color::Rgb(160, 160, 160),
@@ -70,8 +51,6 @@ impl Theme {
             },
             _ => Self {
                 accent,
-                accent_dim,
-                bg: Color::Reset,
                 text: Color::White,
                 text_secondary: Color::Rgb(160, 160, 170),
                 text_muted: Color::Rgb(90, 90, 100),
@@ -93,8 +72,6 @@ impl Default for Theme {
     fn default() -> Self {
         Self {
             accent: Color::Cyan,
-            accent_dim: Color::Rgb(0, 80, 80),
-            bg: Color::Reset,
             text: Color::White,
             text_secondary: Color::Rgb(160, 160, 170),
             text_muted: Color::Rgb(90, 90, 100),

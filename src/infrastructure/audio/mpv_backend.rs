@@ -1,13 +1,9 @@
-use std::path::Path;
 use std::process::Stdio;
 
 use tokio::process::Command;
 
-use crate::application::ports::AudioPlaybackPort;
 use crate::domain::error::DomainError;
 use crate::domain::media::Song;
-use crate::domain::player_state::PlayerState;
-use crate::shared::spectrum::SpectrumFrame;
 
 pub struct MpvAdapter {
     child: Option<tokio::process::Child>,
@@ -69,65 +65,6 @@ impl MpvAdapter {
             .stderr(Stdio::null())
             .status()
             .is_ok()
-    }
-}
-
-impl AudioPlaybackPort for MpvAdapter {
-    fn play_file(&mut self, _path: &Path, _song: Song) -> Result<(), DomainError> {
-        Err(DomainError::Audio("MpvAdapter does not support local file playback. Use play_video for URL playback.".into()))
-    }
-
-    fn play_bytes(&mut self, _data: Vec<u8>, _song: Song) -> Result<(), DomainError> {
-        Err(DomainError::Audio("MpvAdapter does not support byte-stream playback.".into()))
-    }
-
-    fn pause(&mut self) -> Result<(), DomainError> {
-        // Mpv runs as external process — pausing not supported via this trait
-        Ok(())
-    }
-
-    fn resume(&mut self) -> Result<(), DomainError> {
-        Ok(())
-    }
-
-    fn stop(&mut self) -> Result<(), DomainError> {
-        self.stop()
-    }
-
-    fn set_volume(&mut self, _vol: f32) {
-        // Volume control for external mpv process not supported
-    }
-
-    fn volume(&self) -> f32 {
-        0.8
-    }
-
-    fn state(&self) -> PlayerState {
-        if self.child.is_some() {
-            PlayerState::Playing
-        } else {
-            PlayerState::Stopped
-        }
-    }
-
-    fn current_position(&self) -> f64 {
-        0.0
-    }
-
-    fn current_duration(&self) -> f64 {
-        0.0
-    }
-
-    fn is_sink_empty(&self) -> bool {
-        self.child.is_none()
-    }
-
-    fn has_sink(&self) -> bool {
-        self.child.is_some()
-    }
-
-    fn get_spectrum(&self) -> SpectrumFrame {
-        SpectrumFrame::default()
     }
 }
 

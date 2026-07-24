@@ -7,12 +7,10 @@ use crate::domain::media::{Playlist, Song};
 use crate::domain::player_state::PlayerState;
 use crate::shared::spectrum::SpectrumFrame;
 
-/// Port for media search (existing, unmodified).
+/// Port for media search.
 #[async_trait]
 pub trait MediaSearchPort: Send + Sync {
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<Song>, DomainError>;
-    #[allow(dead_code)]
-    async fn get_stream_url(&self, url: &str, audio_only: bool) -> Result<String, DomainError>;
 }
 
 /// Port for audio/video playback abstraction.
@@ -28,16 +26,16 @@ pub trait AudioPlaybackPort: Send {
     fn current_position(&self) -> f64;
     fn current_duration(&self) -> f64;
     fn is_sink_empty(&self) -> bool;
-    #[allow(dead_code)]
-    fn has_sink(&self) -> bool;
     fn get_spectrum(&self) -> SpectrumFrame;
+    /// Toggle spectrum analysis on/off. When disabled, FFT computation is skipped
+    /// to save CPU when the spectrum visualizer isn't visible.
+    fn set_spectrum_enabled(&mut self, enabled: bool);
 }
 
 /// Port for downloading audio from URLs.
 #[async_trait]
 pub trait DownloaderPort: Send + Sync {
     async fn get_stream_url(&self, url: &str, audio_only: bool) -> Result<String, DomainError>;
-    #[allow(dead_code)]
     async fn download_audio_bytes(&self, url: &str) -> Result<Vec<u8>, DomainError>;
     async fn download(
         &self,
@@ -52,20 +50,17 @@ pub trait DownloaderPort: Send + Sync {
 pub trait ConfigPort: Send {
     async fn load_settings(&self) -> Result<AppSettings, DomainError>;
     async fn save_settings(&self, settings: &AppSettings) -> Result<(), DomainError>;
-    #[allow(dead_code)]
-    async fn load_playlist(&self) -> Result<Playlist, DomainError>;
     async fn save_playlist(&self, playlist: &Playlist) -> Result<(), DomainError>;
 }
 
 /// Port for i18n / translations.
-#[allow(dead_code)]
 pub trait I18nPort: Send + std::fmt::Debug {
     fn t(&self, key: &str) -> String;
     fn language(&self) -> &str;
 }
 
-// Re-use AppSettings from config/store for the ConfigPort trait.
-use crate::infrastructure::config::store::AppSettings;
+// Re-use AppSettings from domain for the ConfigPort trait.
+use crate::domain::settings::AppSettings;
 
 #[cfg(test)]
 mod tests {
@@ -129,12 +124,10 @@ mod tests {
         fn is_sink_empty(&self) -> bool {
             true
         }
-        fn has_sink(&self) -> bool {
-            false
-        }
         fn get_spectrum(&self) -> SpectrumFrame {
             self.spectrum
         }
+        fn set_spectrum_enabled(&mut self, _enabled: bool) {}
     }
 
     #[test]
@@ -250,7 +243,6 @@ mod tests {
 
     struct MockConfig {
         settings: AppSettings,
-        playlist: Playlist,
     }
 
     #[async_trait]
@@ -261,9 +253,6 @@ mod tests {
         async fn save_settings(&self, _settings: &AppSettings) -> Result<(), DomainError> {
             Ok(())
         }
-        async fn load_playlist(&self) -> Result<Playlist, DomainError> {
-            Ok(self.playlist.clone())
-        }
         async fn save_playlist(&self, _playlist: &Playlist) -> Result<(), DomainError> {
             Ok(())
         }
@@ -273,7 +262,6 @@ mod tests {
     async fn config_port_load_settings_returns_settings() {
         let config = MockConfig {
             settings: AppSettings::default(),
-            playlist: Playlist::default(),
         };
         let settings = config.load_settings().await.unwrap();
         assert!((settings.volume - 0.8).abs() < f32::EPSILON);
@@ -283,29 +271,14 @@ mod tests {
     async fn config_port_save_settings_returns_ok() {
         let config = MockConfig {
             settings: AppSettings::default(),
-            playlist: Playlist::default(),
         };
         assert!(config.save_settings(&AppSettings::default()).await.is_ok());
-    }
-
-    #[tokio::test]
-    async fn config_port_load_playlist_returns_playlist() {
-        let config = MockConfig {
-            settings: AppSettings::default(),
-            playlist: Playlist {
-                name: "Test".into(),
-                ..Playlist::default()
-            },
-        };
-        let pl = config.load_playlist().await.unwrap();
-        assert_eq!(pl.name, "Test");
     }
 
     #[tokio::test]
     async fn config_port_save_playlist_returns_ok() {
         let config = MockConfig {
             settings: AppSettings::default(),
-            playlist: Playlist::default(),
         };
         assert!(config.save_playlist(&Playlist::default()).await.is_ok());
     }
