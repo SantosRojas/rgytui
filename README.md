@@ -34,7 +34,7 @@ One command. Everything included: build dependencies, yt-dlp, mpv, and rgytui it
 ### Linux / macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rojasape/rgytui/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/rojasape/rgytui/master/scripts/install.sh | bash
 ```
 
 The script will:
@@ -48,23 +48,23 @@ The script will:
 
 ### Windows
 
-Run **PowerShell as Administrator**:
+**Descargá y hacé doble clic** (no necesitás saber nada de programación):
+
+[⬇️ Download install.cmd](https://raw.githubusercontent.com/rojasape/rgytui/master/scripts/install.cmd)
+
+O si preferís la terminal:
 
 ```powershell
-Set-ExecutionPolicy RemoteSigned -Scope Process -Force
-iex (iwr -UseBasicParsing https://raw.githubusercontent.com/rojasape/rgytui/main/scripts/install.ps1).Content
+curl -LO https://raw.githubusercontent.com/rojasape/rgytui/master/scripts/install.cmd
+.\install.cmd
 ```
 
-> ⚠️ `curl` no funciona en PowerShell puro — es alias de `Invoke-WebRequest`. Usá `iwr` como está arriba.
-
-The script will:
-1. Install yt-dlp and mpv (via `winget` if available, or direct download for yt-dlp)
-2. Detect if they're in PATH — if not, find the `.exe` and add it automatically
-3. Clone the repository to `%LOCALAPPDATA%\rgytui\repo`
-4. Build `rgytui --release`
-5. Copy to `%LOCALAPPDATA%\rgytui\bin\` and add to user PATH
-
-> No winget? No problem — yt-dlp is downloaded directly from GitHub. mpv requires manual install for video mode if winget is not available.
+El instalador:
+1. Instala Rust (rustup) — automático, sin preguntas
+2. Descarga yt-dlp — necesario para reproducir YouTube
+3. Opcional: mpv para video mode (lo podés instalar después)
+4. Clona el repositorio y compila rgytui
+5. Agrega al PATH del usuario
 
 ### Updating
 
