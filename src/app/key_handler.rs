@@ -76,7 +76,7 @@ impl App {
         }
 
         // Search/Queue screen — dispatch by focus
-        self.handle_search_queue_key(key)
+        self.handle_search_queue_key(key).await
     }
 
     fn handle_download_popup_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
@@ -308,7 +308,7 @@ impl App {
     }
 
     #[allow(clippy::collapsible_match)]
-    fn handle_search_queue_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
+    async fn handle_search_queue_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
         match key.code {
             // ── Keyboard shortcuts (focus-gated — NOT in SearchInput) ──
             KeyCode::BackTab => {
@@ -568,9 +568,11 @@ impl App {
                 if self.ui.focus == Focus::QueueList && !self.playlist.songs().is_empty() {
                     let idx = self.ui.queue.queue_selected;
                     // Remove cached audio before removing from playlist
-                    if let Some(song) = self.playlist.songs().get(idx)
-                        && let Err(e) = self.audio_cache.remove(&song.id) {
-                            tracing::warn!("Failed to remove cache for '{}': {e}", song.id);
+                    if let Some(song) = self.playlist.songs().get(idx) {
+                        let song_id = song.id.clone();
+                        if let Err(e) = self.audio_cache.remove(&song_id).await {
+                            tracing::warn!("Failed to remove cache for '{}': {e}", song_id);
+                        }
                     }
                     self.playlist.remove(idx);
                 }
@@ -595,9 +597,10 @@ impl App {
             KeyCode::Char('C') | KeyCode::Char('c') => {
                 if self.ui.focus == Focus::QueueList {
                     // Remove cached audio for all queued songs before clearing
-                    for song in self.playlist.songs() {
-                        if let Err(e) = self.audio_cache.remove(&song.id) {
-                            tracing::warn!("Failed to remove cache for '{}': {e}", song.id);
+                    let ids: Vec<String> = self.playlist.songs().iter().map(|s| s.id.clone()).collect();
+                    for id in &ids {
+                        if let Err(e) = self.audio_cache.remove(id).await {
+                            tracing::warn!("Failed to remove cache for '{}': {e}", id);
                         }
                     }
                     self.playlist.clear();

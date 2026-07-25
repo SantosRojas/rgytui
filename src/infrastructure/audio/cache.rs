@@ -72,13 +72,16 @@ impl AudioCache {
     }
 
     /// Remove a single song from the cache.
-    pub fn remove(&self, song_id: &str) -> Result<(), DomainError> {
+    pub async fn remove(&self, song_id: &str) -> Result<(), DomainError> {
         let path = self.song_path(song_id);
-        if path.exists() {
-            std::fs::remove_file(&path)
-                .map_err(|e| DomainError::Other(format!("Failed to remove cache: {e}")))?;
+        match tokio::fs::metadata(&path).await {
+            Ok(_) => {
+                tokio::fs::remove_file(&path).await
+                    .map_err(|e| DomainError::Other(format!("Failed to remove cache: {e}")))?;
+                Ok(())
+            }
+            Err(_) => Ok(()), // file doesn't exist — nothing to remove
         }
-        Ok(())
     }
 
     /// Remove every cached audio file by destroying and recreating the cache directory.
