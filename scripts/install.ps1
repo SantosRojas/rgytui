@@ -122,10 +122,46 @@ function Ensure-Mpv {
     }
 }
 
+# ── Try to bootstrap winget if missing ──────────────────────────────────────
+
+function Try-InstallWinget {
+    if (Get-Command winget -ErrorAction SilentlyContinue) { return $true }
+
+    Write-Host "  winget not found, attempting to install App Installer from Microsoft..."
+    Write-Host "  (Downloading ~100 MB — this may take a moment)"
+
+    # Ensure VCLibs dependency (required for App Installer)
+    try {
+        $vcLibs = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
+        $vcOut = "$env:TEMP\VCLibs.appx"
+        Invoke-WebRequest -Uri $vcLibs -OutFile $vcOut -UseBasicParsing
+        Add-AppxPackage -Path $vcOut -ErrorAction SilentlyContinue
+    } catch {
+        Write-Host "  ⚠ Could not install VCLibs dependency: $_"
+    }
+
+    # Download and install App Installer (winget)
+    try {
+        $url = "https://github.com/microsoft/winget-cli/releases/latest/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
+        $out = "$env:TEMP\AppInstaller.msixbundle"
+        Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+        Add-AppxPackage -Path $out -ErrorAction Stop
+        Write-Host "  ✓ winget installed successfully."
+        return $true
+    } catch {
+        Write-Host "  ⚠ Could not install winget automatically: $_"
+        Write-Host "  (will fall back to direct download for dependencies)"
+        return $false
+    }
+}
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 Write-Host "=== rgytui installer (Windows) ==="
 Write-Host ""
+
+# Bootstrap winget if possible — this makes the rest smoother
+$WingetAvailable = Try-InstallWinget
 
 # yt-dlp (mandatory)
 Write-Host ":: Installing yt-dlp..."
