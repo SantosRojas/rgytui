@@ -29,63 +29,46 @@
 
 ## Installation 📦
 
-### Windows
-
-**Prerequisites:** [yt-dlp](https://github.com/yt-dlp/yt-dlp) (required), [mpv](https://mpv.io) (optional, for video mode)
-
-#### Option A: Install script (recommended)
-
-```powershell
-# Download and run the installer
-curl -LO https://github.com/rojasape/rgytui/releases/latest/download/install.ps1
-.\install.ps1
-```
-
-The installer will:
-1. Download the latest `rgytui.exe`
-2. Install to `%LOCALAPPDATA%\rgytui`
-3. Check for `yt-dlp` and `mpv` — install via `winget` if missing
-4. Add to your `PATH`
-5. Create a Start Menu shortcut
-
-#### Option B: Manual
-
-```powershell
-# Download the binary
-curl -LO https://github.com/rojasape/rgytui/releases/latest/download/rgytui-x86_64-windows.zip
-Expand-Archive rgytui-x86_64-windows.zip -DestinationPath rgytui
-# Add rgytui to your PATH
-```
-
-#### Uninstall
-
-```powershell
-.\uninstall.ps1
-# or manually: delete %LOCALAPPDATA%\rgytui and remove from PATH
-```
+One command. Everything included: build dependencies, yt-dlp, mpv, and rgytui itself.
 
 ### Linux / macOS
 
 ```bash
-# Prerequisites
-sudo apt install yt-dlp mpv   # Debian/Ubuntu
-brew install yt-dlp mpv        # macOS
-
-# Install via cargo
-cargo install rgytui
-
-# Or build from source
-git clone https://github.com/rojasape/rgytui.git
-cd rgytui
-cargo build --release
-./target/release/rgytui
+curl -fsSL https://raw.githubusercontent.com/rojasape/rgytui/main/scripts/install.sh | bash
 ```
 
-### Cargo (any platform)
+The script will:
+1. Install build dependencies (pkg-config, Wayland, ALSA, GTK3)
+2. Install runtime dependencies (yt-dlp, mpv)
+3. Clone the repository to `~/.local/share/rgytui/repo`
+4. Build `rgytui --release`
+5. Symlink to `~/.local/bin/rgytui`
+
+> Make sure `~/.local/bin` is in your PATH.
+
+### Windows
+
+Run **PowerShell as Administrator**:
+
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope Process -Force
+iex (curl -fsSL https://raw.githubusercontent.com/rojasape/rgytui/main/scripts/install.ps1)
+```
+
+The script will:
+1. Install yt-dlp and mpv via `winget` (exact IDs: `yt-dlp.yt-dlp`, `shinchiro.mpv`)
+2. Detect if they're in PATH — if not, find the `.exe` and add it automatically
+3. Clone the repository to `%LOCALAPPDATA%\rgytui\repo`
+4. Build `rgytui --release`
+5. Copy to `%LOCALAPPDATA%\rgytui\bin\` and add to user PATH
+
+### Updating
 
 ```bash
-cargo install rgytui
+rgytui update
 ```
+
+Pulls the latest source, rebuilds, and replaces the installed binary. No Rust toolchain required after the first install — `rgytui update` handles everything.
 
 ---
 

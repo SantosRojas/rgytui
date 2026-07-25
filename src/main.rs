@@ -4,6 +4,7 @@ mod domain;
 mod infrastructure;
 mod interface;
 mod shared;
+mod update;
 
 use std::sync::Arc;
 
@@ -24,6 +25,11 @@ use crate::interface::i18n::Translations;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    // Handle subcommands before starting the TUI
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(|s| s.as_str()) == Some("update") {
+        return crate::update::run_update();
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,symphonia=error")),
