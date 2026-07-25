@@ -9,6 +9,8 @@ impl App {
 
             if let Some(next) = self.playlist.next().cloned() {
                 self.queue_play(next);
+            } else {
+                self.ui.player.current_song = None;
             }
         }
     }
