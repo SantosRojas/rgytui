@@ -58,8 +58,8 @@ fn dimmed_rgb(rgb: (u8, u8, u8)) -> (u8, u8, u8) {
 
 // ── Pulse animation ──────────────────────────────────────────────────────────
 //
-// Expanding concentric rings from the center that fade in and out smoothly —
-// no abrupt wrap-around jump.
+// Expanding concentric rings from the center with smooth fade-in/out,
+// breathing background glow, and direct cell rendering for zero allocations.
 
 const PULSE_BLOCKS: [&str; 8] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
 
@@ -78,50 +78,64 @@ fn render_pulse(buf: &mut Buffer, area: Rect, frame: usize, accent_rgb: (u8, u8,
         return;
     }
 
-    let ring_count = 3usize;
     let ring_width = (max_r * 0.15).max(1.5);
     let speed = 0.025;
 
-    let mut lines: Vec<Line> = Vec::with_capacity(height);
+    // ── Precompute ring data ONCE per frame (not per cell) ──
+    let mut radii = [0.0f32; 3];
+    let mut envelopes = [0.0f32; 3];
+    for r in 0..3 {
+        let offset = r as f32 / 3.0;
+        let phase = (frame as f32 * speed + offset) % 1.0;
+        envelopes[r] = (phase * std::f32::consts::PI).sin();
+        radii[r] = phase * max_r;
+    }
+
+    // Breathing background glow — slow sinusoidal ambient pulse.
+    // Every cell gets a faint baseline that rises and falls, making the
+    // whole area feel alive even between ring passes.
+    let breath = ((frame as f32 * 0.015).sin() * 0.08 + 0.12).max(0.03);
+
+    let base_x = area.x;
+    let base_y = area.y;
+
     for row in 0..height {
-        let mut spans = Vec::with_capacity(width);
+        let dy = row as f32 - cy;
+        let dy2 = dy * dy;
+
         for col in 0..width {
             let dx = col as f32 - cx;
-            let dy = row as f32 - cy;
-            let dist = (dx * dx + dy * dy).sqrt();
+            let dist = (dx * dx + dy2).sqrt();
 
-            // Accumulate intensity from all rings (each with smooth envelope).
-            // Because the envelope peaks mid-phase and reaches 0 at both ends,
-            // a ring fading out at the edge is replaced by the next ring
-            // fading in at the center — no abrupt jump.
-            let mut intensity = 0.0f32;
-            for r in 0..ring_count {
-                let offset = r as f32 / ring_count as f32;
-                let phase = (frame as f32 * speed + offset) % 1.0;
-                // sin(π·phase) → 0 at 0.0, 1 at 0.5, 0 at 1.0 — smooth fade both ends
-                let envelope = (phase * std::f32::consts::PI).sin();
-                let radius = phase * max_r;
+            // Start with the breathing floor, then let rings push it up
+            let mut intensity = breath;
 
-                let d = (dist - radius).abs();
+            for r in 0..3 {
+                let d = (dist - radii[r]).abs();
                 if d < ring_width {
                     let t = d / ring_width;
                     let falloff = 1.0 - t * t; // quadratic
-                    intensity = intensity.max(falloff * envelope);
+                    let ring_intensity = falloff * envelopes[r];
+                    if ring_intensity > intensity {
+                        intensity = ring_intensity;
+                    }
                 }
             }
 
-            if intensity > 0.02 {
-                // Use block characters for a solid filled look
-                let idx = ((intensity * 7.0).floor() as usize).min(7);
-                let color = lerp_rgb(dim, accent_rgb, intensity);
-                spans.push(Span::styled(PULSE_BLOCKS[idx], Style::default().fg(color)));
-            } else {
-                spans.push(Span::styled(" ", Style::default()));
+            // Set cell directly — zero allocations in the hot loop
+            if let Some(cell) = buf.cell_mut((base_x + col as u16, base_y + row as u16)) {
+                if intensity > 0.02 {
+                    let idx = ((intensity * 7.0).floor() as usize).min(7);
+                    let color = lerp_rgb(dim, accent_rgb, intensity);
+                    cell.set_symbol(PULSE_BLOCKS[idx]);
+                    cell.set_style(Style::default().fg(color));
+                } else {
+                    cell.set_symbol(" ");
+                    cell.set_style(Style::default());
+                }
             }
         }
-        lines.push(Line::from(spans));
     }
-    Paragraph::new(lines).render(area, buf);
 }
 
 // ── Spinner message ──────────────────────────────────────────────────────────
@@ -176,6 +190,8 @@ impl Widget for LoadingWidget {
             height: anim_rows as u16,
         };
 
+        // This match will be dead-code-eliminated by the compiler
+        // since LoadingAnimation only has Pulse.
         if self.style == LoadingAnimation::Pulse {
             render_pulse(buf, anim_area, self.frame, accent_rgb);
         }
