@@ -48,21 +48,17 @@ The script will:
 
 ### Windows
 
-**Descargá y hacé doble clic** (no necesitás saber nada de programación):
+**1. Abrí PowerShell** (Windows + X → Windows PowerShell o Terminal)
 
-[⬇️ Download install.cmd](https://raw.githubusercontent.com/SantosRojas/rgytui/master/scripts/install.cmd)
-
-O si preferís la terminal:
+**2. Copiá y pegá esto** (una sola línea):
 
 ```powershell
-# Opción A: curl.exe (viene con Windows 10/11)
-curl.exe -LO https://raw.githubusercontent.com/SantosRojas/rgytui/master/scripts/install.cmd
-.\install.cmd
-
-# Opción B: iwr (PowerShell nativo)
-iwr -Uri https://raw.githubusercontent.com/SantosRojas/rgytui/master/scripts/install.cmd -OutFile install.cmd -UseBasicParsing
-.\install.cmd
+iwr -Uri https://raw.githubusercontent.com/SantosRojas/rgytui/master/scripts/install.cmd -OutFile install.cmd -UseBasicParsing; .\install.cmd
 ```
+
+Eso descarga el instalador y lo ejecuta. El instalador se encarga de todo: Rust, yt-dlp, compilar rgytui y agregarlo al PATH.
+
+> Si preferís descargar el archivo manual: [install.cmd](https://github.com/SantosRojas/rgytui/raw/master/scripts/install.cmd) — click derecho → "Guardar enlace como..."
 
 El instalador:
 1. Instala Rust (rustup) — automático, sin preguntas
