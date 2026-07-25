@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::domain::media::{Playlist, Song};
+use crate::domain::media::{Playlist, RepeatMode, Song};
 
 pub struct PlaylistUseCase {
     pub(crate) playlist: Playlist,
@@ -41,6 +41,10 @@ impl PlaylistUseCase {
         self.playlist.previous()
     }
 
+    pub fn has_current_song(&self) -> bool {
+        self.playlist.current_song().is_some()
+    }
+
     pub fn current_song_cloned(&self) -> Option<Song> {
         self.playlist.current_song().cloned()
     }
@@ -59,6 +63,15 @@ impl PlaylistUseCase {
 
     /// Returns an `Arc<[Song]>` that is cached and only rebuilt when the playlist version changes.
     /// This avoids cloning the entire song Vec every render frame.
+    pub fn repeat_mode(&self) -> RepeatMode {
+        self.playlist.repeat_mode
+    }
+
+    pub fn cycle_repeat_mode(&mut self) -> RepeatMode {
+        self.playlist.repeat_mode = self.playlist.repeat_mode.next();
+        self.playlist.repeat_mode
+    }
+
     pub fn songs_arc(&mut self) -> Arc<[Song]> {
         let v = self.playlist.version;
         if v != self.last_version {

@@ -10,6 +10,7 @@ use crate::application::playlist::PlaylistUseCase;
 pub(crate) use crate::application::ports::{ConfigPort, I18nPort};
 use crate::application::search::SearchUseCase;
 pub(crate) use crate::domain::audio_mode::AudioMode;
+pub(crate) use crate::domain::media::RepeatMode;
 pub(crate) use crate::domain::media::Song;
 pub(crate) use crate::domain::player_state::PlayerState;
 pub(crate) use crate::infrastructure::audio::cache::AudioCache;

@@ -7,7 +7,15 @@ impl App {
                 tracing::warn!("Failed to stop on auto-advance: {}", e);
             }
 
-            if let Some(next) = self.playlist.next().cloned() {
+            if self.playlist.repeat_mode() == RepeatMode::One
+                && self.playlist.has_current_song()
+            {
+                // Repeat-one: replay the same song
+                self.ui.player.current_song = None;
+                if let Some(song) = self.playlist.current_song_cloned() {
+                    self.queue_play(song);
+                }
+            } else if let Some(next) = self.playlist.next().cloned() {
                 self.queue_play(next);
             } else {
                 self.ui.player.current_song = None;

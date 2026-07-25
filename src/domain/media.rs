@@ -1,5 +1,28 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum RepeatMode {
+    None,
+    All,
+    One,
+}
+
+impl Default for RepeatMode {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl RepeatMode {
+    pub fn next(self) -> Self {
+        match self {
+            Self::None => Self::All,
+            Self::All => Self::One,
+            Self::One => Self::None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Song {
     pub id: String,
@@ -65,6 +88,8 @@ pub struct Playlist {
     pub name: String,
     pub songs: Vec<Song>,
     pub current_index: usize,
+    #[serde(default)]
+    pub repeat_mode: RepeatMode,
     #[serde(skip)]
     pub version: usize,
 }
@@ -75,6 +100,7 @@ impl Default for Playlist {
             name: String::from("Queue"),
             songs: Vec::new(),
             current_index: 0,
+            repeat_mode: RepeatMode::None,
             version: 0,
         }
     }
@@ -86,8 +112,14 @@ impl Playlist {
     }
 
     pub fn next(&mut self) -> Option<&Song> {
+        if self.songs.is_empty() {
+            return None;
+        }
         if self.current_index + 1 < self.songs.len() {
             self.current_index += 1;
+            self.songs.get(self.current_index)
+        } else if self.repeat_mode == RepeatMode::All {
+            self.current_index = 0;
             self.songs.get(self.current_index)
         } else {
             None
@@ -95,8 +127,14 @@ impl Playlist {
     }
 
     pub fn previous(&mut self) -> Option<&Song> {
+        if self.songs.is_empty() {
+            return None;
+        }
         if self.current_index > 0 {
             self.current_index -= 1;
+            self.songs.get(self.current_index)
+        } else if self.repeat_mode == RepeatMode::All {
+            self.current_index = self.songs.len() - 1;
             self.songs.get(self.current_index)
         } else {
             None

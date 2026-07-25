@@ -63,11 +63,25 @@ impl AudioCache {
     }
 
     /// Store audio bytes in the cache, keyed by song ID.
+    ///
+    /// Atomic write: writes to a `.tmp` file first, then renames to the final
+    /// path. This prevents partial/corrupt cache entries if the write is
+    /// interrupted (crash, power loss).
     pub async fn put(&self, song_id: &str, data: &[u8]) -> Result<(), DomainError> {
         tokio::fs::create_dir_all(&self.cache_dir).await
             .map_err(|e| DomainError::Other(format!("Failed to create cache dir: {e}")))?;
-        tokio::fs::write(self.song_path(song_id), data).await
-            .map_err(|e| DomainError::Other(format!("Failed to write cache: {e}")))?;
+
+        let final_path = self.song_path(song_id);
+        let tmp_path = self.cache_dir.join(format!("{song_id}.tmp"));
+
+        // Rename is atomic on the same filesystem — write to .tmp first.
+        if let Err(e) = tokio::fs::write(&tmp_path, data).await {
+            let _ = tokio::fs::remove_file(&tmp_path).await; // best-effort cleanup
+            return Err(DomainError::Other(format!("Failed to write cache: {e}")));
+        }
+        tokio::fs::rename(&tmp_path, &final_path).await
+            .map_err(|e| DomainError::Other(format!("Failed to finalize cache: {e}")))?;
+
         Ok(())
     }
 

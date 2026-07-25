@@ -71,6 +71,7 @@ pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, the
     let status_bar = StatusBar::new()
         .player_state(snapshot.player_state)
         .audio_mode(snapshot.audio_mode)
+        .repeat_mode(snapshot.repeat_mode)
         .volume(snapshot.volume)
         .focus(state.focus)
         .translations(state.config.translations.clone())

@@ -7,6 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
 
 use crate::application::ports::I18nPort;
+use crate::domain::media::RepeatMode;
 use crate::domain::player_state::PlayerState;
 use crate::domain::audio_mode::AudioMode;
 use crate::interface::i18n::Translations;
@@ -16,6 +17,7 @@ use crate::interface::theme::Theme;
 pub struct StatusBar {
     player_state: PlayerState,
     audio_mode: AudioMode,
+    repeat_mode: RepeatMode,
     volume: f32,
     focus: Focus,
     translations: Arc<dyn I18nPort>,
@@ -27,6 +29,7 @@ impl StatusBar {
         Self {
             player_state: PlayerState::Idle,
             audio_mode: AudioMode::Audio,
+            repeat_mode: RepeatMode::None,
             volume: 0.8,
             focus: Focus::SearchInput,
             translations: Arc::new(Translations::load("es")) as Arc<dyn I18nPort>,
@@ -41,6 +44,11 @@ impl StatusBar {
 
     pub fn audio_mode(mut self, mode: AudioMode) -> Self {
         self.audio_mode = mode;
+        self
+    }
+
+    pub fn repeat_mode(mut self, mode: RepeatMode) -> Self {
+        self.repeat_mode = mode;
         self
     }
 
@@ -84,6 +92,12 @@ impl Widget for StatusBar {
             AudioMode::Video => Span::styled(t("status_video"), Style::default().fg(Color::Rgb(200, 120, 255))),
         };
 
+        let repeat_label = match self.repeat_mode {
+            RepeatMode::None => Span::styled("  ", Style::default()),
+            RepeatMode::All => Span::styled(t("status_repeat_all"), Style::default().fg(th.accent)),
+            RepeatMode::One => Span::styled(t("status_repeat_one"), Style::default().fg(th.accent)),
+        };
+
         let vol = (self.volume * 100.0) as u8;
         let vol_icon = if vol > 50 {
             "🔊"
@@ -98,6 +112,8 @@ impl Widget for StatusBar {
             state_label,
             sep.clone(),
             mode_label,
+            sep.clone(),
+            repeat_label,
             sep.clone(),
             Span::styled(
                 format!("{} {:3}%", vol_icon, vol),

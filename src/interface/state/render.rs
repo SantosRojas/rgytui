@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::application::playback::PlaybackUseCase;
 use crate::application::playlist::PlaylistUseCase;
 use crate::domain::audio_mode::AudioMode;
-use crate::domain::media::Song;
+use crate::domain::media::{RepeatMode, Song};
 use crate::domain::player_state::PlayerState;
 use crate::shared::spectrum::SpectrumFrame;
 
@@ -17,6 +17,7 @@ pub struct RenderSnapshot {
     pub queue_songs: Arc<[Song]>,
     pub queue_current: usize,
     pub audio_mode: AudioMode,
+    pub repeat_mode: RepeatMode,
 }
 
 impl RenderSnapshot {
@@ -30,6 +31,7 @@ impl RenderSnapshot {
             queue_songs: pl.songs_arc(),
             queue_current: pl.playlist().current_index,
             audio_mode: pb.mode(),
+            repeat_mode: pl.repeat_mode(),
         }
     }
 

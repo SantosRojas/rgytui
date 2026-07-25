@@ -275,6 +275,15 @@ impl App {
                     self.queue_play(prev);
                 }
             }
+            KeyCode::Char('r') => {
+                let mode = self.playlist.cycle_repeat_mode();
+                let key = match mode {
+                    RepeatMode::None => "notif_repeat_off",
+                    RepeatMode::All => "notif_repeat_all",
+                    RepeatMode::One => "notif_repeat_one",
+                };
+                self.ui.push_notification(self.ui.tr(key), NotificationLevel::Info);
+            }
             KeyCode::Char('=') | KeyCode::Char('+') => {
                 let vol = (self.playback.volume() + 0.05).min(1.0);
                 self.playback.set_volume(vol);
@@ -507,15 +516,24 @@ impl App {
                     self.schedule_play_selected();
                 }
             },
-            KeyCode::Char('n') => {
+            KeyCode::Char('n') if self.ui.focus != Focus::SearchInput => {
                 if let Some(next) = self.playlist.next().cloned() {
                     self.queue_play(next);
                 }
             }
-            KeyCode::Char('p') => {
+            KeyCode::Char('p') if self.ui.focus != Focus::SearchInput => {
                 if let Some(prev) = self.playlist.previous().cloned() {
                     self.queue_play(prev);
                 }
+            }
+            KeyCode::Char('r') if self.ui.focus != Focus::SearchInput => {
+                let mode = self.playlist.cycle_repeat_mode();
+                let key = match mode {
+                    RepeatMode::None => "notif_repeat_off",
+                    RepeatMode::All => "notif_repeat_all",
+                    RepeatMode::One => "notif_repeat_one",
+                };
+                self.ui.push_notification(self.ui.tr(key), NotificationLevel::Info);
             }
             KeyCode::Char('=') | KeyCode::Char('+') => {
                 let vol = (self.playback.volume() + 0.05).min(1.0);
