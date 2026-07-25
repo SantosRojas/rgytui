@@ -52,8 +52,10 @@ Run **PowerShell as Administrator**:
 
 ```powershell
 Set-ExecutionPolicy RemoteSigned -Scope Process -Force
-iex (curl -fsSL https://raw.githubusercontent.com/rojasape/rgytui/main/scripts/install.ps1)
+iex (iwr -UseBasicParsing https://raw.githubusercontent.com/rojasape/rgytui/main/scripts/install.ps1).Content
 ```
+
+> ⚠️ `curl` no funciona en PowerShell puro — es alias de `Invoke-WebRequest`. Usá `iwr` como está arriba.
 
 The script will:
 1. Install yt-dlp and mpv (via `winget` if available, or direct download for yt-dlp)
