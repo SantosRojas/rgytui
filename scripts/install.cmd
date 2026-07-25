@@ -3,13 +3,13 @@ REM rgytui installer for Windows
 REM Double-click this file to install rgytui and all dependencies.
 REM This script is self-contained — no other files needed.
 
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
+REM Check if running as admin using net session
+>nul 2>&1 net session
 if '%errorlevel%' NEQ '0' (
     echo Requesting administrator privileges...
-    powershell start-process "%~f0" -verb runas
+    powershell -Command "Start-Process '%~f0' -Verb RunAs"
     exit /b
 )
-
 cd /d "%~dp0"
 
 echo === rgytui installer for Windows ===
@@ -32,8 +32,8 @@ if %errorlevel% neq 0 (
 where yt-dlp >nul 2>&1
 if %errorlevel% neq 0 (
     echo yt-dlp not found. Downloading...
-    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' -OutFile '%TEMP%\yt-dlp.exe' -UseBasicParsing"
-    copy /y "%TEMP%\yt-dlp.exe" "%LOCALAPPDATA%\rgytui\bin\yt-dlp.exe" >nul 2>&1
+    if not exist "%LOCALAPPDATA%\rgytui\bin" mkdir "%LOCALAPPDATA%\rgytui\bin"
+    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' -OutFile '%LOCALAPPDATA%\rgytui\bin\yt-dlp.exe' -UseBasicParsing"
     echo ✓ yt-dlp downloaded.
 ) else (
     echo ✓ yt-dlp already installed.
