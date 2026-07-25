@@ -72,6 +72,20 @@ install_brew() {
     brew install pkg-config yt-dlp mpv
 }
 
+# ── Ensure Rust is installed ─────────────────────────────────────────────────
+
+ensure_rust() {
+    if command -v cargo &>/dev/null; then
+        echo ":: Rust already installed (cargo found)."
+        return
+    fi
+    echo ":: Installing Rust via rustup..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    # Source cargo env for the rest of the script
+    . "$HOME/.cargo/env"
+    echo "  ✓ Rust installed."
+}
+
 # ── Build & install rgytui ───────────────────────────────────────────────────
 
 build_rgytui() {
@@ -124,4 +138,5 @@ else
     exit 1
 fi
 
+ensure_rust
 build_rgytui

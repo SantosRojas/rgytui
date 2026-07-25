@@ -171,6 +171,23 @@ Ensure-YtDlp
 Write-Host ":: Installing mpv..."
 Ensure-Mpv
 
+# ── Ensure Rust is installed ────────────────────────────────────────────────
+
+function Ensure-Rust {
+    if (Get-Command cargo -ErrorAction SilentlyContinue) {
+        Write-Host "  ✓ Rust already installed (cargo found)."
+        return
+    }
+    Write-Host "  :: Installing Rust via rustup..."
+    $url = "https://win.rustup.rs/x86_64"
+    $out = "$env:TEMP\rustup-init.exe"
+    Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+    & $out -y --default-toolchain stable --profile default
+    # Add cargo to PATH for the rest of the script
+    $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
+    Write-Host "  ✓ Rust installed."
+}
+
 # ── Clone / update repo ─────────────────────────────────────────────────────
 
 if (-not (Test-Path -Path $RepoDir)) {
@@ -186,6 +203,8 @@ if (-not (Test-Path -Path $RepoDir)) {
 }
 
 # ── Build ───────────────────────────────────────────────────────────────────
+
+Ensure-Rust
 
 Write-Host ":: Building rgytui (release)..."
 Push-Location $RepoDir
