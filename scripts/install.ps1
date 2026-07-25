@@ -12,7 +12,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$RepoUrl  = "https://github.com/rojasape/rgytui.git"
+$RepoUrl  = "https://github.com/SantosRojas/rgytui.git"
 $HomeDir  = "$env:LOCALAPPDATA\rgytui"
 $RepoDir  = "$HomeDir\repo"
 $BinDir   = "$HomeDir\bin"

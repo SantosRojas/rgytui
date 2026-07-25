@@ -6,8 +6,8 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/rustc-1.85%2B-orange" alt="Rustc"/>
-  <img src="https://img.shields.io/github/v/release/rojasape/rgytui" alt="Version"/>
-  <img src="https://img.shields.io/github/actions/workflow/status/rojasape/rgytui/ci.yml?branch=main" alt="CI"/>
+  <img src="https://img.shields.io/github/v/release/SantosRojas/rgytui" alt="Version"/>
+  <img src="https://img.shields.io/github/actions/workflow/status/SantosRojas/rgytui/ci.yml?branch=master" alt="CI"/>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License"/>
 </p>
 
@@ -34,7 +34,7 @@ One command. Everything included: build dependencies, yt-dlp, mpv, and rgytui it
 ### Linux / macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rojasape/rgytui/master/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SantosRojas/rgytui/master/scripts/install.sh | bash
 ```
 
 The script will:
@@ -50,12 +50,17 @@ The script will:
 
 **Descargá y hacé doble clic** (no necesitás saber nada de programación):
 
-[⬇️ Download install.cmd](https://raw.githubusercontent.com/rojasape/rgytui/master/scripts/install.cmd)
+[⬇️ Download install.cmd](https://raw.githubusercontent.com/SantosRojas/rgytui/master/scripts/install.cmd)
 
 O si preferís la terminal:
 
 ```powershell
-curl -LO https://raw.githubusercontent.com/rojasape/rgytui/master/scripts/install.cmd
+# Opción A: curl.exe (viene con Windows 10/11)
+curl.exe -LO https://raw.githubusercontent.com/SantosRojas/rgytui/master/scripts/install.cmd
+.\install.cmd
+
+# Opción B: iwr (PowerShell nativo)
+iwr -Uri https://raw.githubusercontent.com/SantosRojas/rgytui/master/scripts/install.cmd -OutFile install.cmd -UseBasicParsing
 .\install.cmd
 ```
 
@@ -131,7 +136,7 @@ All Rust dependencies are managed by Cargo:
 ## Build from Source 🔧
 
 ```bash
-git clone https://github.com/rojasape/rgytui.git
+git clone https://github.com/SantosRojas/rgytui.git
 cd rgytui
 
 # Debug build

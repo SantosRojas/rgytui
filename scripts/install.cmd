@@ -51,7 +51,7 @@ echo.
 echo Step 2 of 5: Cloning rgytui repository...
 if not exist "%LOCALAPPDATA%\rgytui\repo" (
     mkdir "%LOCALAPPDATA%\rgytui"
-    git clone --depth=1 https://github.com/rojasape/rgytui.git "%LOCALAPPDATA%\rgytui\repo"
+    git clone --depth=1 https://github.com/SantosRojas/rgytui.git "%LOCALAPPDATA%\rgytui\repo"
 ) else (
     echo Repository exists, updating...
     cd /d "%LOCALAPPDATA%\rgytui\repo"

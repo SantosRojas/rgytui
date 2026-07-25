@@ -19,7 +19,7 @@ pub fn run_update() -> Result<(), anyhow::Error> {
     if !repo.join(".git").exists() {
         anyhow::bail!(
             "Repository not found at {}.\n\
-             Install rgytui first: see https://github.com/rojasape/rgytui",
+             Install rgytui first: see https://github.com/SantosRojas/rgytui",
             repo.display()
         );
     }
