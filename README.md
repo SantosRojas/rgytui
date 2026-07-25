@@ -56,11 +56,13 @@ iex (curl -fsSL https://raw.githubusercontent.com/rojasape/rgytui/main/scripts/i
 ```
 
 The script will:
-1. Install yt-dlp and mpv via `winget` (exact IDs: `yt-dlp.yt-dlp`, `shinchiro.mpv`)
+1. Install yt-dlp and mpv (via `winget` if available, or direct download for yt-dlp)
 2. Detect if they're in PATH — if not, find the `.exe` and add it automatically
 3. Clone the repository to `%LOCALAPPDATA%\rgytui\repo`
 4. Build `rgytui --release`
 5. Copy to `%LOCALAPPDATA%\rgytui\bin\` and add to user PATH
+
+> No winget? No problem — yt-dlp is downloaded directly from GitHub. mpv requires manual install for video mode if winget is not available.
 
 ### Updating
 

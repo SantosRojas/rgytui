@@ -4,6 +4,9 @@
 .DESCRIPTION
     Installs yt-dlp + mpv, builds rgytui from source, installs to
     %LOCALAPPDATA%\rgytui\bin\, and adds it to the user PATH.
+
+    Dependencies are installed via winget (when available) or downloaded
+    directly from GitHub releases as a fallback.
     Run this in PowerShell as Administrator.
 #>
 
@@ -23,66 +26,114 @@ function Add-ToPath {
     if ($current -split ";" -notcontains $Dir) {
         $new = if ($current) { "$current;$Dir" } else { $Dir }
         [Environment]::SetEnvironmentVariable("Path", $new, "User")
-        Write-Host "  Added '$Dir' to PATH (user)."
+        Write-Host "  ✓ Added '$Dir' to PATH (user)."
     } else {
-        Write-Host "  '$Dir' already in PATH."
+        Write-Host "  ✓ '$Dir' already in PATH."
     }
 }
 
-# ── Helper: ensure an .exe is available, install if missing ─────────────────
+# ── Helper: find an installed .exe by scanning common locations ─────────────
 
-function Ensure-InPath {
-    param(
-        [string]$Name,
-        [string]$WingetId
+function Find-InstalledExe {
+    param([string]$Name)
+    $candidates = @(
+        "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\**\$Name.exe"
+        "$env:USERPROFILE\AppData\Local\Programs\**\$Name.exe"
+        "${env:ProgramFiles}\**\$Name.exe"
+        "${env:ProgramFiles(x86)}\**\$Name.exe"
+        "$BinDir\$Name.exe"
     )
-    $found = Get-Command $Name -ErrorAction SilentlyContinue
+    foreach ($pattern in $candidates) {
+        $match = Get-ChildItem -Path $pattern -Recurse -ErrorAction SilentlyContinue |
+                 Select-Object -First 1
+        if ($match) { return $match.DirectoryName }
+    }
+    return $null
+}
+
+# ── Ensure yt-dlp is available ─────────────────────────────────────────────
+
+function Ensure-YtDlp {
+    $found = Get-Command "yt-dlp" -ErrorAction SilentlyContinue
     if ($found) {
-        Write-Host "  ✓ $Name found at $($found.Source)"
+        Write-Host "  ✓ yt-dlp found at $($found.Source)"
         return
     }
 
-    Write-Host "  :: Installing $Name via winget (exact ID: $WingetId)..."
-    winget install --exact --id $WingetId --accept-package-agreements --accept-source-agreements
-    if (-not $?) {
-        throw "winget install failed for $WingetId"
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Host "  :: Installing yt-dlp via winget..."
+        winget install --exact --id "yt-dlp.yt-dlp" --accept-package-agreements --accept-source-agreements
+        if (-not $?) { throw "winget install failed for yt-dlp.yt-dlp" }
+    } else {
+        Write-Host "  :: winget not found. Downloading yt-dlp directly..."
+        New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+        $url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+        Invoke-WebRequest -Uri $url -OutFile "$BinDir\yt-dlp.exe" -UseBasicParsing
+        Write-Host "  ✓ yt-dlp.exe downloaded to $BinDir"
     }
 
-    # Re-check; if still not in PATH, find the .exe and fix it
-    $found = Get-Command $Name -ErrorAction SilentlyContinue
+    # Re-check; if still not in PATH, search and fix
+    $found = Get-Command "yt-dlp" -ErrorAction SilentlyContinue
     if (-not $found) {
-        Write-Host "  $Name installed but not in PATH. Searching..."
-        $candidates = @(
-            "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\**\$Name.exe"
-            "$env:USERPROFILE\AppData\Local\Programs\**\$Name.exe"
-            "${env:ProgramFiles}\**\$Name.exe"
-            "${env:ProgramFiles(x86)}\**\$Name.exe"
-        )
-        $exePath = $null
-        foreach ($pattern in $candidates) {
-            $matches = Get-ChildItem -Path $pattern -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($matches) { $exePath = $matches.DirectoryName; break }
+        Write-Host "  :: Adding yt-dlp to PATH..."
+        $dir = Find-InstalledExe -Name "yt-dlp"
+        if (-not $dir) {
+            # If we downloaded it ourselves, it's in $BinDir
+            if (Test-Path "$BinDir\yt-dlp.exe") { $dir = $BinDir }
         }
-        if (-not $exePath) {
-            throw "Could not find $Name.exe after installation. Please install manually."
+        if ($dir) { Add-ToPath -Dir $dir } else {
+            throw "Could not find yt-dlp.exe. Please install manually from https://github.com/yt-dlp/yt-dlp"
         }
-        Add-ToPath -Dir $exePath
-        Write-Host "  ✓ $Name PATH added (from $exePath)"
     }
 }
 
-# ── Install dependencies ────────────────────────────────────────────────────
+# ── Ensure mpv is available (optional) ──────────────────────────────────────
+
+function Ensure-Mpv {
+    $found = Get-Command "mpv" -ErrorAction SilentlyContinue
+    if ($found) {
+        Write-Host "  ✓ mpv found at $($found.Source)"
+        return
+    }
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Host "  :: Installing mpv via winget..."
+        winget install --exact --id "shinchiro.mpv" --accept-package-agreements --accept-source-agreements
+        if (-not $?) {
+            Write-Host "  ⚠ winget install for mpv failed. You can install it manually."
+            Write-Host "    https://mpv.io/install/"
+            return
+        }
+    } else {
+        Write-Host "  ⚠ winget not found. Skipping mpv — install manually for video mode:"
+        Write-Host "    https://mpv.io/install/"
+        return
+    }
+
+    # Re-check; if still not in PATH, search and fix
+    $found = Get-Command "mpv" -ErrorAction SilentlyContinue
+    if (-not $found) {
+        Write-Host "  :: Adding mpv to PATH..."
+        $dir = Find-InstalledExe -Name "mpv"
+        if ($dir) { Add-ToPath -Dir $dir } else {
+            Write-Host "  ⚠ Could not locate mpv.exe after install. Add it to PATH manually."
+            Write-Host "    https://mpv.io/install/"
+        }
+    }
+}
+
+# ── Main ────────────────────────────────────────────────────────────────────
 
 Write-Host "=== rgytui installer (Windows) ==="
 Write-Host ""
 
 # yt-dlp (mandatory)
 Write-Host ":: Installing yt-dlp..."
-Ensure-InPath -Name "yt-dlp" -WingetId "yt-dlp.yt-dlp"
+Ensure-YtDlp
 
-# mpv (optional for video mode, but install anyway)
+# mpv (optional)
 Write-Host ":: Installing mpv..."
-Ensure-InPath -Name "mpv" -WingetId "shinchiro.mpv"
+Ensure-Mpv
 
 # ── Clone / update repo ─────────────────────────────────────────────────────
 
