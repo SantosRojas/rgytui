@@ -23,7 +23,7 @@ fn default_language() -> String {
 }
 
 fn default_loading_animation() -> String {
-    "wave".into()
+    "pulse".into()
 }
 
 impl Default for AppSettings {
@@ -36,7 +36,7 @@ impl Default for AppSettings {
             accent_color: "#00ffff".into(),
             download_path: String::new(),
             language: "en".into(),
-            loading_animation: "wave".into(),
+            loading_animation: "pulse".into(),
         }
     }
 }

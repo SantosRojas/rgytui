@@ -67,7 +67,7 @@ impl Default for ConfigState {
             cached_theme: None,
             default_search_limit: 10,
             download_path: String::new(),
-            loading_animation: LoadingAnimation::Wave,
+            loading_animation: LoadingAnimation::Pulse,
         }
     }
 }
