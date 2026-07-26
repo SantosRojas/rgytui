@@ -4,6 +4,7 @@ mod domain;
 mod infrastructure;
 mod interface;
 mod shared;
+mod uninstall;
 mod update;
 
 use std::sync::Arc;
@@ -27,8 +28,10 @@ use crate::interface::i18n::Translations;
 async fn main() -> Result<(), anyhow::Error> {
     // Handle subcommands before starting the TUI
     let args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(|s| s.as_str()) == Some("update") {
-        return crate::update::run_update();
+    match args.get(1).map(|s| s.as_str()) {
+        Some("update") => return crate::update::run_update(),
+        Some("uninstall") => return crate::uninstall::run_uninstall(),
+        _ => {}
     }
     tracing_subscriber::fmt()
         .with_env_filter(
