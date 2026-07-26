@@ -66,9 +66,17 @@ function Ensure-YtDlp {
     }
 
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Host "  :: Installing yt-dlp via winget..."
-        winget install --exact --id "yt-dlp.yt-dlp" --accept-package-agreements --accept-source-agreements
-        if (-not $?) { throw "winget install failed for yt-dlp.yt-dlp" }
+        # Check if already installed via winget — avoids spurious error exit
+        winget list --exact --id "yt-dlp.yt-dlp" 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  ✓ yt-dlp already installed via winget"
+        } else {
+            Write-Host "  :: Installing yt-dlp via winget..."
+            winget install --exact --id "yt-dlp.yt-dlp" --accept-package-agreements --accept-source-agreements
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  ⚠ winget install reported an issue — checking fallback..."
+            }
+        }
     } else {
         Write-Host "  :: winget not found. Downloading yt-dlp directly..."
         New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
