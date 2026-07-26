@@ -19,6 +19,11 @@ impl PlaylistUseCase {
 
     pub fn load(&mut self, playlist: Playlist) {
         self.playlist = playlist;
+        if !self.playlist.songs.is_empty() {
+            self.playlist.current_index = self.playlist.current_index.min(self.playlist.songs.len() - 1);
+        } else {
+            self.playlist.current_index = 0;
+        }
         self.songs_arc = self.playlist.songs().to_vec().into();
         self.last_version = self.playlist.version;
     }
@@ -67,8 +72,6 @@ impl PlaylistUseCase {
         self.playlist.songs()
     }
 
-    /// Returns an `Arc<[Song]>` that is cached and only rebuilt when the playlist version changes.
-    /// This avoids cloning the entire song Vec every render frame.
     pub fn repeat_mode(&self) -> RepeatMode {
         self.playlist.repeat_mode
     }
@@ -78,6 +81,8 @@ impl PlaylistUseCase {
         self.playlist.repeat_mode
     }
 
+    /// Returns an `Arc<[Song]>` that is cached and only rebuilt when the playlist version changes.
+    /// This avoids cloning the entire song Vec every render frame.
     pub fn songs_arc(&mut self) -> Arc<[Song]> {
         let v = self.playlist.version;
         if v != self.last_version {

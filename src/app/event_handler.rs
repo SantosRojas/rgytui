@@ -22,19 +22,9 @@ impl App {
                 );
             }
             AppEvent::PlaybackFinished => {
-                if self.playlist.repeat_mode() == RepeatMode::One
-                    && self.playlist.has_current_song()
-                {
-                    // Repeat-one: replay the same song
-                    self.ui.player.current_song = None;
-                    if let Some(song) = self.playlist.current_song_cloned() {
-                        self.queue_play(song);
-                    }
-                } else if let Some(next) = self.playlist.next().cloned() {
-                    self.queue_play(next);
-                } else {
-                    self.ui.player.current_song = None;
-                }
+                // Auto-advance is handled by update_progress() polling.
+                // This arm exists only for future event-driven use.
+                // Keep it as a no-op to avoid double-advance bugs.
             }
             AppEvent::PlaybackError(err) => {
                 self.ui.player.loading_status = None;
