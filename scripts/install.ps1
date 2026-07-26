@@ -37,11 +37,16 @@ function Add-ToPath {
 function Find-InstalledExe {
     param([string]$Name)
     $candidates = @(
+        # .exe locations
         "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\**\$Name.exe"
         "$env:USERPROFILE\AppData\Local\Programs\**\$Name.exe"
         "${env:ProgramFiles}\**\$Name.exe"
         "${env:ProgramFiles(x86)}\**\$Name.exe"
         "$BinDir\$Name.exe"
+        # .com locations (some winget packages like shinchiro.mpv install .com)
+        "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\**\$Name.com"
+        "${env:ProgramFiles}\**\$Name.com"
+        "${env:ProgramFiles(x86)}\**\$Name.com"
     )
     foreach ($pattern in $candidates) {
         $match = Get-ChildItem -Path $pattern -Recurse -ErrorAction SilentlyContinue |
@@ -113,7 +118,29 @@ function Ensure-Mpv {
             winget install --exact --id $id --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "  ✓ mpv installed via winget ($id)"
-                break
+                # Refresh PATH and find mpv — winget adds to system/user PATH
+                # but the current session doesn't see it yet.
+                $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+                            [Environment]::GetEnvironmentVariable("Path", "User")
+                $mpvDir = Find-InstalledExe -Name "mpv"
+                if (-not $mpvDir) {
+                    # Known winget install locations for shinchiro.mpv
+                    $candidates = @(
+                        "${env:ProgramFiles}\MPV Player"
+                        "${env:ProgramFiles(x86)}\MPV Player"
+                        "$env:LOCALAPPDATA\Programs\mpv-player"
+                    )
+                    foreach ($c in $candidates) {
+                        if (Test-Path "$c\mpv.com" -or Test-Path "$c\mpv.exe") {
+                            $mpvDir = $c; break
+                        }
+                    }
+                }
+                if ($mpvDir) {
+                    Add-ToPath -Dir $mpvDir
+                    Write-Host "  ✓ mpv ready at $mpvDir"
+                }
+                return  # winget succeeded — don't fall through to direct download
             }
             Write-Host "  ⚠ winget install failed for $id"
         }
@@ -121,14 +148,7 @@ function Ensure-Mpv {
         Write-Host "  ⚠ winget not found. Will try direct download..."
     }
 
-    # ── Re-check PATH after winget ──────────────────────────────────────
-    $found = Get-Command "mpv" -ErrorAction SilentlyContinue
-    if ($found) {
-        Write-Host "  ✓ mpv found at $($found.Source)"
-        return
-    }
-
-    # ── Strategy 2: direct download of portable 7z ─────────────────────
+    # ── Strategy 2: direct download of portable 7z (only if winget failed) ──
     Write-Host "  :: Trying direct download of mpv portable..."
 
     $mpvVersion = "0.41.0"
