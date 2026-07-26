@@ -7,12 +7,12 @@
 
     Dependencies are installed via winget (when available) or downloaded
     directly from GitHub releases as a fallback.
-    Run this in PowerShell as Administrator.
+    Some steps (e.g. winget install) may require administrator privileges.
 #>
 
 $ErrorActionPreference = "Stop"
 
-$RepoUrl  = "https://github.com/SantosRojas/rgytui.git"
+$RepoUrl  = if ($env:RGYTUI_REPO) { $env:RGYTUI_REPO } else { "https://github.com/SantosRojas/rgytui.git" }
 $HomeDir  = "$env:LOCALAPPDATA\rgytui"
 $RepoDir  = "$HomeDir\repo"
 $BinDir   = "$HomeDir\bin"

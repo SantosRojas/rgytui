@@ -147,7 +147,7 @@ if ($RemoveDeps) {
 
     # ── mpv: try multiple winget IDs, fallback to direct binary ──────
     $mpvRemoved = $false
-    foreach ($id in @("shinchiro.mpv", "mpv-player.mpv-CI.MSVC", "mpv.mpv")) {
+    foreach ($id in @("shinchiro.mpv", "mpv-player.mpv-CI.MSVC")) {
         try {
             winget uninstall --id $id --silent 2>$null
             Write-Host "  ✓ mpv removed (winget: $id)" -ForegroundColor Green

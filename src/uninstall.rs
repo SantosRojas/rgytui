@@ -140,7 +140,10 @@ if (-not $removed) {{
     let ps1_script = format!(
         r##"
 Write-Host ':: Waiting for rgytui to exit...'
-Start-Sleep 3
+do {{
+    Start-Sleep 1
+    $proc = Get-Process rgytui -ErrorAction SilentlyContinue
+}} while ($proc)
 
 Write-Host ':: Removing binary...'
 Remove-Item -Force '{bin_s}\rgytui.exe' -ErrorAction SilentlyContinue

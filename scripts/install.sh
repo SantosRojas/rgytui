@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-REPO_URL="https://github.com/SantosRojas/rgytui.git"
+REPO_URL="${RGYTUI_REPO:-https://github.com/SantosRojas/rgytui.git}"
 INSTALL_ROOT="${RGYTUI_HOME:-$HOME/.local/share/rgytui}"
 REPO_DIR="$INSTALL_ROOT/repo"
 BIN_DIR="$HOME/.local/bin"
