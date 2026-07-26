@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     rgytui installer — Windows
 .DESCRIPTION
