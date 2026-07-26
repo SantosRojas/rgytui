@@ -77,7 +77,12 @@ pub fn run_uninstall() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-// ── Windows: schedule delayed cleanup via cmd script ─────────────────────────
+// ── Windows: schedule delayed cleanup via .ps1 script ───────────────────────
+//
+// Instead of embedding PowerShell code inside cmd with fragile ^ escaping
+// (cmd treats & | > < as special even inside "..." arguments), we write a
+// standalone .ps1 file and call it with powershell -File. The .cmd wrapper
+// is minimal: wait, run the .ps1, then self-delete.
 
 #[cfg(windows)]
 fn uninstall_windows(
@@ -92,84 +97,95 @@ fn uninstall_windows(
     let bin_s = bin_dir.display();
     let repo_s = repo_dir.display();
 
-    // Build optional dependency removal blocks
+    // Build optional dependency removal blocks (PowerShell code)
     let dep_block = {
         let mut s = String::new();
         if remove_ytdlp {
             s.push_str(&format!(
-                "\r\n\
-                 echo :: Removing yt-dlp...\r\n\
-                 powershell -NoProfile -Command ^\r\n\
-                   \"$ids = @('yt-dlp.yt-dlp','ytdlp.yt-dlp'); ^\r\n\
-                    $removed = $false; ^\r\n\
-                    foreach ($id in $ids) {{ ^\r\n\
-                      $r = & winget uninstall --id $id --silent --accept-source-agreements 2>&1; ^\r\n\
-                      if ($LASTEXITCODE -eq 0) {{ $removed = $true; break }} ^\r\n\
-                    }} ^\r\n\
-                    if (-not $removed -and (Test-Path '{bin_s}\\yt-dlp.exe')) {{ ^\r\n\
-                      Remove-Item -Force '{bin_s}\\yt-dlp.exe'; ^\r\n\
-                      Write-Host '  Removed yt-dlp.exe from bin dir' ^\r\n\
-                    }}\"\r\n",
-                bin_s = bin_s,
+                r"
+Write-Host '  :: Removing yt-dlp...'
+$ids = @('yt-dlp.yt-dlp','ytdlp.yt-dlp')
+$removed = $false
+foreach ($id in $ids) {{
+    $r = & winget uninstall --id $id --silent --accept-source-agreements 2>&1
+    if ($LASTEXITCODE -eq 0) {{ $removed = $true; break }}
+}}
+if (-not $removed -and (Test-Path '{bin_s}\yt-dlp.exe')) {{
+    Remove-Item -Force '{bin_s}\yt-dlp.exe'
+    Write-Host '  Removed yt-dlp.exe from bin dir'
+}}
+",
             ));
         }
         if remove_mpv {
             s.push_str(&format!(
-                "\r\n\
-                 echo :: Removing mpv...\r\n\
-                 powershell -NoProfile -Command ^\r\n\
-                   \"$ids = @('shinchiro.mpv','mpv-player.mpv-CI.MSVC'); ^\r\n\
-                    $removed = $false; ^\r\n\
-                    foreach ($id in $ids) {{ ^\r\n\
-                      $r = & winget uninstall --id $id --silent --accept-source-agreements 2>&1; ^\r\n\
-                      if ($LASTEXITCODE -eq 0) {{ $removed = $true; break }} ^\r\n\
-                    }} ^\r\n\
-                    if (-not $removed) {{ ^\r\n\
-                      if (Test-Path '{bin_s}\\mpv\\mpv.com') {{ Remove-Item -Recurse -Force '{bin_s}\\mpv'; Write-Host '  Removed mpv directory' }} ^\r\n\
-                      if (Test-Path '{bin_s}\\mpv.exe') {{ Remove-Item -Force '{bin_s}\\mpv.exe'; Write-Host '  Removed mpv.exe' }} ^\r\n\
-                    }}\"\r\n",
-                bin_s = bin_s,
+                r"
+Write-Host '  :: Removing mpv...'
+$ids = @('shinchiro.mpv','mpv-player.mpv-CI.MSVC')
+$removed = $false
+foreach ($id in $ids) {{
+    $r = & winget uninstall --id $id --silent --accept-source-agreements 2>&1
+    if ($LASTEXITCODE -eq 0) {{ $removed = $true; break }}
+}}
+if (-not $removed) {{
+    if (Test-Path '{bin_s}\mpv\mpv.com') {{ Remove-Item -Recurse -Force '{bin_s}\mpv'; Write-Host '  Removed mpv directory' }}
+    if (Test-Path '{bin_s}\mpv.exe') {{ Remove-Item -Force '{bin_s}\mpv.exe'; Write-Host '  Removed mpv.exe' }}
+}}
+",
             ));
         }
         s
     };
 
-    // Write a cleanup .cmd that runs after this process exits.
-    // It waits 3 s, removes files, cleans PATH, then self-deletes.
-    let script = std::env::temp_dir().join("rgytui-uninstall.cmd");
-    let content = format!(
+    let ps1_script = format!(
+        r##"
+Write-Host ':: Waiting for rgytui to exit...'
+Start-Sleep 3
+
+Write-Host ':: Removing binary...'
+Remove-Item -Force '{bin_s}\rgytui.exe' -ErrorAction SilentlyContinue
+
+Write-Host ':: Removing repository...'
+Remove-Item -Recurse -Force '{repo_s}' -ErrorAction SilentlyContinue
+{dep_block}
+Remove-Item -Recurse -Force '{home_s}' -ErrorAction SilentlyContinue
+
+Write-Host ':: Cleaning PATH...'
+$p = [Environment]::GetEnvironmentVariable('Path','User')
+$p = ($p.Split(';') | Where-Object {{ $_ -ne '{bin_s}' -and $_ -ne '{bin_s}\mpv' }}) -join ';'
+[Environment]::SetEnvironmentVariable('Path', $p, 'User')
+
+Write-Host ''
+Write-Host '✓ rgytui has been uninstalled.'
+Write-Host '  You may need to restart your terminal for PATH changes.'
+Start-Sleep 3
+"##,
+        bin_s = bin_s,
+        repo_s = repo_s,
+        home_s = home_s,
+        dep_block = dep_block,
+    );
+
+    // Write cleanup .ps1 file (with BOM so PowerShell -File reads it as UTF-8)
+    let ps1_path = std::env::temp_dir().join("rgytui-uninstall.ps1");
+    let mut ps1_bytes = vec![0xEFu8, 0xBB, 0xBF]; // UTF-8 BOM
+    ps1_bytes.extend_from_slice(ps1_script.as_bytes());
+    std::fs::write(&ps1_path, ps1_bytes)?;
+
+    // Write minimal .cmd wrapper: wait, run .ps1, self-delete
+    let cmd_path = std::env::temp_dir().join("rgytui-uninstall.cmd");
+    let cmd_content = format!(
         "@echo off\r\n\
          title rgytui uninstall\r\n\
-         echo :: Waiting for rgytui to exit...\r\n\
-         timeout /t 3 /nobreak >nul\r\n\
-         \r\n\
-         echo :: Removing binary...\r\n\
-         del /f /q \"{bin_s}\\rgytui.exe\" >nul 2>&1\r\n\
-         \r\n\
-         echo :: Removing repository...\r\n\
-         rmdir /s /q \"{repo_s}\" >nul 2>&1\
-         {dep_block}\
-         \r\n\
-         rmdir /s /q \"{home_s}\" >nul 2>&1\r\n\
-         \r\n\
-         echo :: Cleaning PATH...\r\n\
-         powershell -NoProfile -Command ^\r\n\
-           \"$p = [Environment]::GetEnvironmentVariable('Path','User'); ^\r\n\
-            $p = ($p.Split(';') | Where-Object {{ $_ -ne '{bin_s}' -and $_ -ne '{bin_s}\\mpv' }}) -join ';'; ^\r\n\
-            [Environment]::SetEnvironmentVariable('Path', $p, 'User')\"\r\n\
-         \r\n\
-         echo.\r\n\
-         echo ✓ rgytui has been uninstalled.\r\n\
-         echo   You may need to restart your terminal for PATH changes.\r\n\
-         echo.\r\n\
-         timeout /t 3 /nobreak >nul\r\n\
-         del \"%~f0\"\r\n"
+         powershell -NoProfile -ExecutionPolicy RemoteSigned -File \"{ps1}\"\r\n\
+         del \"%~f0\"\r\n",
+        ps1 = ps1_path.display(),
     );
-    std::fs::write(&script, content)?;
+    std::fs::write(&cmd_path, cmd_content)?;
 
     // Spawn detached — don't wait for it
     let _ = Command::new("cmd")
-        .args(["/c", "start", "/b", "", &script.to_string_lossy()])
+        .args(["/c", "start", "/b", "", &cmd_path.to_string_lossy()])
         .spawn();
 
     eprintln!("✓ Uninstall scheduled. The binary will be removed after you exit.");
