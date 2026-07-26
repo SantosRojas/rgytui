@@ -95,7 +95,7 @@ build_rgytui() {
         git clone "$REPO_URL" "$REPO_DIR"
     else
         echo ":: Repository already exists at $REPO_DIR, updating..."
-        git -C "$REPO_DIR" fetch --ff-only
+        git -C "$REPO_DIR" fetch
         git -C "$REPO_DIR" pull --ff-only
     fi
 

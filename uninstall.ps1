@@ -63,16 +63,26 @@ if (-not (Test-Path $prefix)) {
 
 # ── Remove from PATH ────────────────────────────────────────────────────────
 Write-Host "`n🔧 Removing from PATH..." -ForegroundColor Green
+$mpvDir = Join-Path $binDir "mpv"
+$removePaths = @($binDir, $mpvDir)
+
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($userPath -like "*$binDir*") {
-    $newPath = ($userPath.Split(';') | Where-Object { $_ -ne $binDir }) -join ';'
-    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-    Write-Host "  ✓ Removed from PATH" -ForegroundColor Green
+$parts = $userPath.Split(';')
+$changed = $false
+foreach ($remove in $removePaths) {
+    if ($parts -contains $remove) {
+        $parts = $parts | Where-Object { $_ -ne $remove }
+        Write-Host "  ✓ Removed '$remove' from PATH" -ForegroundColor Green
+        $changed = $true
+    }
+}
+if ($changed) {
+    [Environment]::SetEnvironmentVariable("Path", ($parts -join ';'), "User")
 }
 
 $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
 if ($machinePath -like "*$binDir*") {
-    $newPath = ($machinePath.Split(';') | Where-Object { $_ -ne $binDir }) -join ';'
+    $newPath = ($machinePath.Split(';') | Where-Object { $_ -ne $binDir -and $_ -ne $mpvDir }) -join ';'
     [Environment]::SetEnvironmentVariable("Path", $newPath, "Machine")
     Write-Host "  ✓ Removed from system PATH" -ForegroundColor Green
 }
@@ -120,17 +130,50 @@ if (-not $RemoveDeps) {
 
 if ($RemoveDeps) {
     Write-Host "`n🗑  Removing dependencies..." -ForegroundColor Green
+
+    # ── yt-dlp: try winget, fallback to direct binary ─────────────────
     try {
         winget uninstall --id yt-dlp.yt-dlp --silent 2>$null
-        Write-Host "  ✓ yt-dlp removed" -ForegroundColor Green
+        Write-Host "  ✓ yt-dlp removed (winget)" -ForegroundColor Green
     } catch {
-        Write-Host "  yt-dlp not found or could not be removed" -ForegroundColor Yellow
+        $ytDlp = Join-Path $binDir "yt-dlp.exe"
+        if (Test-Path $ytDlp) {
+            Remove-Item $ytDlp -Force
+            Write-Host "  ✓ yt-dlp removed (direct download)" -ForegroundColor Green
+        } else {
+            Write-Host "  yt-dlp not found" -ForegroundColor Yellow
+        }
     }
-    try {
-        winget uninstall --id mpv.mpv --silent 2>$null
-        Write-Host "  ✓ mpv removed" -ForegroundColor Green
-    } catch {
-        Write-Host "  mpv not found or could not be removed" -ForegroundColor Yellow
+
+    # ── mpv: try multiple winget IDs, fallback to direct binary ──────
+    $mpvRemoved = $false
+    foreach ($id in @("shinchiro.mpv", "mpv-player.mpv-CI.MSVC", "mpv.mpv")) {
+        try {
+            winget uninstall --id $id --silent 2>$null
+            Write-Host "  ✓ mpv removed (winget: $id)" -ForegroundColor Green
+            $mpvRemoved = $true
+            break
+        } catch { }
+    }
+    if (-not $mpvRemoved) {
+        # Check for direct download locations (portable mpv)
+        $mpvDirs = @(
+            Join-Path $binDir "mpv.exe"
+            Join-Path $binDir "mpv.com"
+            Join-Path $binDir "mpv"
+        )
+        $found = $false
+        foreach ($path in $mpvDirs) {
+            if (Test-Path $path) {
+                Remove-Item $path -Recurse -Force -ErrorAction SilentlyContinue
+                $found = $true
+            }
+        }
+        if ($found) {
+            Write-Host "  ✓ mpv removed (portable direct download)" -ForegroundColor Green
+        } else {
+            Write-Host "  mpv not found" -ForegroundColor Yellow
+        }
     }
 }
 

@@ -274,7 +274,7 @@ if (-not (Test-Path -Path $RepoDir)) {
 } else {
     Write-Host ":: Repository exists, updating..."
     Push-Location $RepoDir
-    git fetch --ff-only
+    git fetch
     git pull --ff-only
     Pop-Location
 }

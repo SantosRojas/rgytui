@@ -26,7 +26,7 @@ pub fn run_update() -> Result<(), anyhow::Error> {
 
     // ── 1. git fetch + pull ────────────────────────────────────────────────
     eprintln!(":: Updating source...");
-    run_git(&["fetch", "--ff-only"], &repo)?;
+    run_git(&["fetch"], &repo)?;
     run_git(&["pull", "--ff-only"], &repo)?;
 
     let head = run_git_capture(&["rev-parse", "--short", "HEAD"], &repo)?;
