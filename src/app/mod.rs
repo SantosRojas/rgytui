@@ -51,7 +51,7 @@ impl App {
     pub async fn new(
         playback: PlaybackUseCase,
         search: SearchUseCase,
-        playlist: PlaylistUseCase,
+        mut playlist: PlaylistUseCase,
         config: Box<dyn ConfigPort>,
         i18n: Arc<dyn I18nPort>,
     ) -> Self {
@@ -107,6 +107,11 @@ impl App {
         });
         let language = i18n.language().to_string();
         let loading_animation = crate::domain::loading_animation::LoadingAnimation::from_str(&settings.loading_animation);
+
+        // Load persisted playlist from disk
+        let saved_playlist = config.load_playlist().await;
+        playlist.load(saved_playlist);
+
         let ui = UiState {
             config: ConfigState::new(
                 settings.theme.clone(),

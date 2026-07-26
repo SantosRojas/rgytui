@@ -51,6 +51,7 @@ pub trait ConfigPort: Send {
     async fn load_settings(&self) -> Result<AppSettings, DomainError>;
     async fn save_settings(&self, settings: &AppSettings) -> Result<(), DomainError>;
     async fn save_playlist(&self, playlist: &Playlist) -> Result<(), DomainError>;
+    async fn load_playlist(&self) -> Playlist;
 }
 
 /// Port for i18n / translations.
@@ -255,6 +256,9 @@ mod tests {
         }
         async fn save_playlist(&self, _playlist: &Playlist) -> Result<(), DomainError> {
             Ok(())
+        }
+        async fn load_playlist(&self) -> Playlist {
+            Playlist::default()
         }
     }
 

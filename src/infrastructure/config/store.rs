@@ -134,6 +134,10 @@ impl ConfigPort for ConfigAdapter {
         tokio::fs::write(&self.playlists_path, content).await?;
         Ok(())
     }
+
+    async fn load_playlist(&self) -> Playlist {
+        self.load_playlist().await
+    }
 }
 
 #[cfg(test)]

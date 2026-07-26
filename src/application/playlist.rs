@@ -17,6 +17,12 @@ impl PlaylistUseCase {
         }
     }
 
+    pub fn load(&mut self, playlist: Playlist) {
+        self.playlist = playlist;
+        self.songs_arc = self.playlist.songs().to_vec().into();
+        self.last_version = self.playlist.version;
+    }
+
     pub fn playlist(&self) -> &Playlist {
         &self.playlist
     }
