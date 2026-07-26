@@ -96,30 +96,107 @@ function Ensure-Mpv {
         return
     }
 
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Host "  :: Installing mpv via winget..."
-        winget install --exact --id "shinchiro.mpv" --accept-package-agreements --accept-source-agreements
-        if (-not $?) {
-            Write-Host "  ⚠ winget install for mpv failed. You can install it manually."
-            Write-Host "    https://mpv.io/install/"
-            return
+    $wingetAvailable = Get-Command winget -ErrorAction SilentlyContinue
+
+    # ── Strategy 1: winget with multiple IDs ────────────────────────────
+    if ($wingetAvailable) {
+        Write-Host "  :: Updating winget sources..."
+        winget source update 2>&1 | Out-Null
+
+        $wingetIds = @(
+            "shinchiro.mpv"           # Community build (most common)
+            "mpv-player.mpv-CI.MSVC"  # Official CI build
+        )
+
+        foreach ($id in $wingetIds) {
+            Write-Host "  :: Installing mpv via winget ($id)..."
+            winget install --exact --id $id --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  ✓ mpv installed via winget ($id)"
+                break
+            }
+            Write-Host "  ⚠ winget install failed for $id"
         }
     } else {
-        Write-Host "  ⚠ winget not found. Skipping mpv — install manually for video mode:"
-        Write-Host "    https://mpv.io/install/"
+        Write-Host "  ⚠ winget not found. Will try direct download..."
+    }
+
+    # ── Re-check PATH after winget ──────────────────────────────────────
+    $found = Get-Command "mpv" -ErrorAction SilentlyContinue
+    if ($found) {
+        Write-Host "  ✓ mpv found at $($found.Source)"
         return
     }
 
-    # Re-check; if still not in PATH, search and fix
-    $found = Get-Command "mpv" -ErrorAction SilentlyContinue
-    if (-not $found) {
-        Write-Host "  :: Adding mpv to PATH..."
-        $dir = Find-InstalledExe -Name "mpv"
-        if ($dir) { Add-ToPath -Dir $dir } else {
-            Write-Host "  ⚠ Could not locate mpv.exe after install. Add it to PATH manually."
-            Write-Host "    https://mpv.io/install/"
+    # ── Strategy 2: direct download of portable 7z ─────────────────────
+    Write-Host "  :: Trying direct download of mpv portable..."
+
+    $mpvVersion = "0.41.0"
+    $url = "https://downloads.sourceforge.net/project/mpv-player-windows/release/mpv-${mpvVersion}-x86_64.7z"
+    $archivePath = "$env:TEMP\mpv.7z"
+    $extractDir = "$BinDir\mpv"
+
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $archivePath -UseBasicParsing -ErrorAction Stop
+        Write-Host "  ✓ Downloaded mpv archive. Extracting..."
+
+        New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
+
+        # Try 7z (either on PATH or standalone 7zr.exe)
+        $7zExe = if (Get-Command 7z -ErrorAction SilentlyContinue) { "7z" }
+                 elseif (Get-Command 7zr -ErrorAction SilentlyContinue) { "7zr" }
+                 else { $null }
+
+        if (-not $7zExe) {
+            Write-Host "  :: Downloading 7zr standalone extractor..."
+            $7zrUrl = "https://www.7-zip.org/a/7zr.exe"
+            $7zrPath = "$env:TEMP\7zr.exe"
+            Invoke-WebRequest -Uri $7zrUrl -OutFile $7zrPath -UseBasicParsing -ErrorAction Stop
+            $7zExe = $7zrPath
         }
+
+        & $7zExe x $archivePath -o"$extractDir" -y 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  ✓ Archive extracted."
+        } else {
+            throw "Extraction failed with exit code $LASTEXITCODE"
+        }
+
+        # Find mpv.exe — it might be in a versioned subdirectory inside the archive
+        $mpvExe = Get-ChildItem -Path $extractDir -Recurse -Filter "mpv.exe" -ErrorAction SilentlyContinue |
+                  Select-Object -First 1
+
+        if ($mpvExe) {
+            $mpvDir = $mpvExe.DirectoryName
+            # Flatten: if it's in a subdirectory, move everything up
+            if ($mpvDir -ne $extractDir) {
+                Get-ChildItem -Path $mpvDir -File | Move-Item -Destination $extractDir -Force
+                Get-ChildItem -Path $mpvDir -Directory | Move-Item -Destination $extractDir -Force
+                Remove-Item $mpvDir -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host "  ✓ mpv.exe ready at $extractDir"
+            Add-ToPath -Dir $extractDir
+        } else {
+            Write-Host "  ⚠ Downloaded archive but mpv.exe not found inside."
+        }
+    } catch {
+        Write-Host "  ⚠ Direct download failed: $_"
     }
+
+    # Clean up temp files
+    Remove-Item $archivePath -Force -ErrorAction SilentlyContinue
+    Remove-Item "$env:TEMP\7zr.exe" -Force -ErrorAction SilentlyContinue
+
+    # ── Final check: search for installed exe and add to PATH ──────────
+    $dir = Find-InstalledExe -Name "mpv"
+    if ($dir) {
+        Add-ToPath -Dir $dir
+        return
+    }
+
+    Write-Host "  ⚠ mpv could not be installed automatically."
+    Write-Host "    Install manually from: https://mpv.io/install/"
+    Write-Host "    Or try: winget install shinchiro.mpv"
 }
 
 # ── Try to bootstrap winget if missing ──────────────────────────────────────
