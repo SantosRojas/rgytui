@@ -25,6 +25,8 @@ pub enum AppEvent {
     AudioReady { song: Song, data: Vec<u8> },
     /// Background audio download failed.
     AudioDownloadError(String),
+    /// Stream URL resolved for video playback (non-blocking).
+    VideoStreamReady { song: Song, stream_url: String },
     /// Show a confirmation dialog when Ctrl+C is pressed during an active download.
     ShowConfirmExit,
 }

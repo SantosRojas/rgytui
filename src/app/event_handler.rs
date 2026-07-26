@@ -1,7 +1,7 @@
 use super::*;
 
 impl App {
-    pub(crate) fn handle_event(&mut self, event: AppEvent) {
+    pub(crate) async fn handle_event(&mut self, event: AppEvent) {
         match event {
             AppEvent::SearchResults(songs) => {
                 let count = songs.len();
@@ -37,6 +37,7 @@ impl App {
                 }
             }
             AppEvent::PlaybackError(err) => {
+                self.ui.player.loading_status = None;
                 self.ui.push_notification(
                     self.ui.tr("err_playback").replace("{}", &err),
                     NotificationLevel::Error,
@@ -44,12 +45,14 @@ impl App {
                 self.ui.player.current_song = None;
             }
             AppEvent::DownloadComplete { song_title } => {
+                self.ui.player.loading_status = None;
                 self.ui.push_notification(
                     self.ui.tr("notif_downloaded").replace("{}", &song_title),
                     NotificationLevel::Success,
                 );
             }
             AppEvent::DownloadError(err) => {
+                self.ui.player.loading_status = None;
                 self.ui.push_notification(
                     self.ui.tr("err_download_failed").replace("{}", &err),
                     NotificationLevel::Error,
@@ -77,6 +80,19 @@ impl App {
                 );
                 self.ui.player.loading_status = None;
                 self.ui.player.current_song = None;
+            }
+            AppEvent::VideoStreamReady { song, stream_url } => {
+                self.ui.player.loading_status = None;
+                match self.playback.play_video_stream(&stream_url, song).await {
+                    Ok(()) => {}
+                    Err(e) => {
+                        self.ui.push_notification(
+                            self.ui.tr("err_playback").replace("{}", &e.to_string()),
+                            NotificationLevel::Error,
+                        );
+                        self.ui.player.current_song = None;
+                    }
+                }
             }
             AppEvent::ShowConfirmExit => {
                 self.ui.show_exit_confirmation = true;

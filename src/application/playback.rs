@@ -91,6 +91,11 @@ impl PlaybackUseCase {
         self.audio.play_bytes(data, song)
     }
 
+    /// Play video from a pre-resolved stream URL (non-blocking, spawns mpv).
+    pub async fn play_video_stream(&mut self, stream_url: &str, song: Song) -> Result<(), DomainError> {
+        self.mpv.play_video(stream_url, song).await
+    }
+
     pub fn downloader_clone(&self) -> Arc<dyn DownloaderPort> {
         self.downloader.clone()
     }

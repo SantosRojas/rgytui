@@ -187,7 +187,7 @@ impl App {
                     }
                 }
                 Some(event) = self.event_rx.recv() => {
-                    self.handle_event(event);
+                    self.handle_event(event).await;
                     false
                 }
                 _ = tokio::time::sleep(Duration::from_millis(50)) => {
@@ -627,7 +627,7 @@ mod tests {
         // Let's process it by calling handle_event directly on what was sent.
         // Since we can't easily peek the channel, we manually set the flag
         // to verify the event_handler handles it correctly.
-        app.handle_event(AppEvent::ShowConfirmExit);
+        app.handle_event(AppEvent::ShowConfirmExit).await;
         assert!(app.ui.show_exit_confirmation, "flag should be true after ShowConfirmExit");
     }
 
@@ -761,7 +761,7 @@ mod tests {
         app.ui.player.current_song = Some(song);
 
         // Send PlaybackError
-        app.handle_event(AppEvent::PlaybackError("Something went wrong".into()));
+        app.handle_event(AppEvent::PlaybackError("Something went wrong".into())).await;
         assert!(app.ui.player.current_song.is_none(), "current_song should be cleared after error");
     }
 
@@ -784,7 +784,7 @@ mod tests {
         };
         app.ui.player.current_song = Some(song);
 
-        app.handle_event(AppEvent::AudioDownloadError("Download failed".into()));
+        app.handle_event(AppEvent::AudioDownloadError("Download failed".into())).await;
         assert!(app.ui.player.current_song.is_none(), "current_song should be cleared after download error");
     }
 
@@ -813,7 +813,7 @@ mod tests {
         app.playlist.set_current_index(0);
 
         // Simulate an error
-        app.handle_event(AppEvent::PlaybackError("Failed".into()));
+        app.handle_event(AppEvent::PlaybackError("Failed".into())).await;
         assert!(app.ui.player.current_song.is_none());
 
         // Now simulate re-selecting the same song: call schedule_play_selected

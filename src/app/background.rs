@@ -32,20 +32,26 @@ impl App {
 
             match self.playback.mode() {
                 AudioMode::Video => {
-                    // Video mode: still blocking (mpv handles its own window)
-                    match self.playback.play(&song).await {
-                        Ok(()) => {
-                            self.ui.player.loading_status = None;
+                    // Video mode: resolve stream URL in background,
+                    // then spawn mpv — keeps loading animation visible in the UI.
+                    let tx = self.event_tx.clone();
+                    let url = song.webpage_url.clone();
+                    let song_for_event = song.clone();
+                    let downloader = self.playback.downloader_clone();
+                    tokio::spawn(async move {
+                        let result = downloader.get_stream_url(&url, false).await;
+                        match result {
+                            Ok(stream_url) => {
+                                let _ = tx.send(AppEvent::VideoStreamReady {
+                                    song: song_for_event,
+                                    stream_url,
+                                }).await;
+                            }
+                            Err(e) => {
+                                let _ = tx.send(AppEvent::PlaybackError(e.to_string())).await;
+                            }
                         }
-                        Err(e) => {
-                            self.ui.push_notification(
-                                self.ui.tr("err_playback").replace("{}", &e.to_string()),
-                                NotificationLevel::Error,
-                            );
-                            self.ui.player.loading_status = None;
-                            self.ui.player.current_song = None;
-                        }
-                    }
+                    });
                 }
                 AudioMode::Audio => {
                     // Audio mode: check cache first, then download in background
@@ -100,8 +106,9 @@ impl App {
 
     pub(crate) async fn handle_download_pending(&mut self) -> bool {
         if let Some((song, dir, fmt)) = self.ui.download.download_pending.take() {
-            let song_title = song.title.clone();
-            let song_title_clone = song_title.clone();
+            let song_name = song.title.clone();
+            self.ui.player.loading_status =
+                Some(self.ui.tr("downloading").replace("{}", &song_name));
             let tx = self.event_tx.clone();
             let ytdlp = self.playback.downloader_clone();
             let sem = self.download_semaphore.clone();
@@ -110,7 +117,6 @@ impl App {
                 let _permit = sem.acquire().await;
                 tokio::select! {
                     _ = token.cancelled() => {
-                        // Task cancelled — drop silently
                     }
                     result = async {
                         if let Err(e) = tokio::fs::create_dir_all(&dir).await {
@@ -121,7 +127,7 @@ impl App {
                         match result {
                             Ok(_path) => {
                                 let _ = tx.send(AppEvent::DownloadComplete {
-                                    song_title: song_title_clone,
+                                    song_title: song_name,
                                 }).await;
                             }
                             Err(e) => {
@@ -131,10 +137,6 @@ impl App {
                     }
                 }
             });
-            self.ui.push_notification(
-                self.ui.tr("downloading").replace("{}", &song_title),
-                NotificationLevel::Info,
-            );
             true
         } else {
             false
