@@ -55,6 +55,7 @@ impl RodioAdapter {
         lock_or_warn(&self.shared, "rodio_shared")
     }
 
+    #[allow(dead_code)]
     pub fn play_file(&mut self, path: &Path, _song: Song) -> Result<(), DomainError> {
         let file = std::fs::File::open(path)?;
         let decoder =

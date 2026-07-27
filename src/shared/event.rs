@@ -13,6 +13,7 @@ pub enum AppEvent {
     SearchResults(Vec<Song>),
     SearchError(String),
     /// Emitted when a song finishes naturally (used for auto-advance).
+    #[allow(dead_code)]
     PlaybackFinished,
     PlaybackError(String),
     DownloadComplete { song_title: String },

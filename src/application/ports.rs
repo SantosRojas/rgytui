@@ -15,6 +15,7 @@ pub trait MediaSearchPort: Send + Sync {
 
 /// Port for audio/video playback abstraction.
 pub trait AudioPlaybackPort: Send {
+    #[allow(dead_code)]
     fn play_file(&mut self, path: &Path, song: Song) -> Result<(), DomainError>;
     fn play_bytes(&mut self, data: Vec<u8>, song: Song) -> Result<(), DomainError>;
     fn pause(&mut self) -> Result<(), DomainError>;
@@ -62,6 +63,28 @@ pub trait I18nPort: Send + std::fmt::Debug {
 
 // Re-use AppSettings from domain for the ConfigPort trait.
 use crate::domain::settings::AppSettings;
+
+#[cfg(test)]
+pub(crate) struct MockConfig {
+    pub(crate) settings: AppSettings,
+}
+
+#[cfg(test)]
+#[async_trait]
+impl ConfigPort for MockConfig {
+    async fn load_settings(&self) -> Result<AppSettings, DomainError> {
+        Ok(self.settings.clone())
+    }
+    async fn save_settings(&self, _settings: &AppSettings) -> Result<(), DomainError> {
+        Ok(())
+    }
+    async fn save_playlist(&self, _playlist: &Playlist) -> Result<(), DomainError> {
+        Ok(())
+    }
+    async fn load_playlist(&self) -> Playlist {
+        Playlist::default()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -238,28 +261,6 @@ mod tests {
         let mock = MockDownloader;
         let path = mock.download("https://youtube.com/watch?v=test", "/tmp", "mp3").await.unwrap();
         assert!(!path.is_empty());
-    }
-
-    // ── Mock: ConfigPort ──
-
-    struct MockConfig {
-        settings: AppSettings,
-    }
-
-    #[async_trait]
-    impl ConfigPort for MockConfig {
-        async fn load_settings(&self) -> Result<AppSettings, DomainError> {
-            Ok(self.settings.clone())
-        }
-        async fn save_settings(&self, _settings: &AppSettings) -> Result<(), DomainError> {
-            Ok(())
-        }
-        async fn save_playlist(&self, _playlist: &Playlist) -> Result<(), DomainError> {
-            Ok(())
-        }
-        async fn load_playlist(&self) -> Playlist {
-            Playlist::default()
-        }
     }
 
     #[tokio::test]

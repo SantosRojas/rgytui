@@ -52,6 +52,7 @@ impl PlaybackUseCase {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn play(&mut self, song: &Song) -> Result<(), DomainError> {
         match self.mode {
             AudioMode::Video => {
@@ -71,6 +72,7 @@ impl PlaybackUseCase {
         }
     }
 
+    #[allow(dead_code)]
     async fn download_and_play(&mut self, song: &Song) -> Result<(), DomainError> {
         let tmp = NamedTempFile::new()?;
         let path = tmp.path().to_owned();

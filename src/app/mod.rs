@@ -431,7 +431,6 @@ mod tests {
     use crate::domain::media::Song;
     use crate::infrastructure::audio::mpv_backend::MpvAdapter;
     use crate::infrastructure::audio::rodio_backend::RodioAdapter;
-    use crate::infrastructure::config::store::ConfigAdapter;
     use crate::infrastructure::ytdlp::client::YtDlpAdapter;
     use crate::interface::i18n::Translations;
 
@@ -507,7 +506,6 @@ mod tests {
 
     /// Helper to build a test App. Returns None if audio device isn't available.
     async fn build_test_app() -> Option<App> {
-        let config = ConfigAdapter::new().await.ok()?;
         let audio: Box<dyn AudioPlaybackPort> = Box::new(RodioAdapter::new().ok()?);
         let mpv = MpvAdapter::new();
         let ytdlp = YtDlpAdapter::new();
@@ -516,9 +514,11 @@ mod tests {
         let playback = PlaybackUseCase::new(downloader, audio, mpv, AudioMode::Audio);
         let search = SearchUseCase::new(search_port);
         let playlist = PlaylistUseCase::new();
-        let config_port: Box<dyn ConfigPort> = Box::new(config);
+        let config: Box<dyn ConfigPort> = Box::new(crate::application::ports::MockConfig {
+            settings: AppSettings::default(),
+        });
         let i18n: Arc<dyn I18nPort> = Arc::new(Translations::load("es"));
-        Some(App::new(playback, search, playlist, config_port, i18n).await)
+        Some(App::new(playback, search, playlist, config, i18n).await)
     }
 
     fn song(id: u32) -> Song {
