@@ -2,20 +2,27 @@
 .SYNOPSIS
     rgytui installer — Windows
 .DESCRIPTION
-    Installs yt-dlp + mpv, builds rgytui from source, installs to
-    %LOCALAPPDATA%\rgytui\bin\, and adds it to the user PATH.
+    Downloads pre-built binary from GitHub Releases.
+    Falls back to source build with -BuildFromSource switch.
 
-    Dependencies are installed via winget (when available) or downloaded
-    directly from GitHub releases as a fallback.
-    Some steps (e.g. winget install) may require administrator privileges.
+    Runtime dependencies (yt-dlp + mpv) are installed via winget or direct download.
+    The binary is installed to %LOCALAPPDATA%\rgytui\bin\ and added to PATH.
 #>
+
+param(
+    [switch]$BuildFromSource,
+    [switch]$Nightly,
+    [switch]$Force
+)
 
 $ErrorActionPreference = "Stop"
 
-$RepoUrl  = if ($env:RGYTUI_REPO) { $env:RGYTUI_REPO } else { "https://github.com/SantosRojas/rgytui.git" }
-$HomeDir  = "$env:LOCALAPPDATA\rgytui"
-$RepoDir  = "$HomeDir\repo"
-$BinDir   = "$HomeDir\bin"
+$RepoOwner = "SantosRojas"
+$RepoName  = "rgytui"
+$RepoUrl   = if ($env:RGYTUI_REPO) { $env:RGYTUI_REPO } else { "https://github.com/${RepoOwner}/${RepoName}.git" }
+$HomeDir   = "$env:LOCALAPPDATA\rgytui"
+$RepoDir   = "$HomeDir\repo"
+$BinDir    = "$HomeDir\bin"
 $RgytuiExe = "$BinDir\rgytui.exe"
 
 # ── Helper: add directory to user PATH if not already there ─────────────────
@@ -37,13 +44,11 @@ function Add-ToPath {
 function Find-InstalledExe {
     param([string]$Name)
     $candidates = @(
-        # .exe locations
         "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\**\$Name.exe"
         "$env:USERPROFILE\AppData\Local\Programs\**\$Name.exe"
         "${env:ProgramFiles}\**\$Name.exe"
         "${env:ProgramFiles(x86)}\**\$Name.exe"
         "$BinDir\$Name.exe"
-        # .com locations (some winget packages like shinchiro.mpv install .com)
         "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\**\$Name.com"
         "${env:ProgramFiles}\**\$Name.com"
         "${env:ProgramFiles(x86)}\**\$Name.com"
@@ -66,7 +71,6 @@ function Ensure-YtDlp {
     }
 
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        # Check if already installed via winget — avoids spurious error exit
         winget list --exact --id "yt-dlp.yt-dlp" 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
             Write-Host "  ✓ yt-dlp already installed via winget"
@@ -85,13 +89,11 @@ function Ensure-YtDlp {
         Write-Host "  ✓ yt-dlp.exe downloaded to $BinDir"
     }
 
-    # Re-check; if still not in PATH, search and fix
     $found = Get-Command "yt-dlp" -ErrorAction SilentlyContinue
     if (-not $found) {
         Write-Host "  :: Adding yt-dlp to PATH..."
         $dir = Find-InstalledExe -Name "yt-dlp"
         if (-not $dir) {
-            # If we downloaded it ourselves, it's in $BinDir
             if (Test-Path "$BinDir\yt-dlp.exe") { $dir = $BinDir }
         }
         if ($dir) { Add-ToPath -Dir $dir } else {
@@ -111,14 +113,13 @@ function Ensure-Mpv {
 
     $wingetAvailable = Get-Command winget -ErrorAction SilentlyContinue
 
-    # ── Strategy 1: winget with multiple IDs ────────────────────────────
     if ($wingetAvailable) {
         Write-Host "  :: Updating winget sources..."
         winget source update 2>&1 | Out-Null
 
         $wingetIds = @(
-            "shinchiro.mpv"           # Community build (most common)
-            "mpv-player.mpv-CI.MSVC"  # Official CI build
+            "shinchiro.mpv"
+            "mpv-player.mpv-CI.MSVC"
         )
 
         foreach ($id in $wingetIds) {
@@ -126,13 +127,10 @@ function Ensure-Mpv {
             winget install --exact --id $id --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "  ✓ mpv installed via winget ($id)"
-                # Refresh PATH and find mpv — winget adds to system/user PATH
-                # but the current session doesn't see it yet.
                 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
                             [Environment]::GetEnvironmentVariable("Path", "User")
                 $mpvDir = Find-InstalledExe -Name "mpv"
                 if (-not $mpvDir) {
-                    # Known winget install locations for shinchiro.mpv
                     $candidates = @(
                         "${env:ProgramFiles}\MPV Player"
                         "${env:ProgramFiles(x86)}\MPV Player"
@@ -148,7 +146,7 @@ function Ensure-Mpv {
                     Add-ToPath -Dir $mpvDir
                     Write-Host "  ✓ mpv ready at $mpvDir"
                 }
-                return  # winget succeeded — don't fall through to direct download
+                return
             }
             Write-Host "  ⚠ winget install failed for $id"
         }
@@ -156,7 +154,6 @@ function Ensure-Mpv {
         Write-Host "  ⚠ winget not found. Will try direct download..."
     }
 
-    # ── Strategy 2: direct download of portable 7z (only if winget failed) ──
     Write-Host "  :: Trying direct download of mpv portable..."
 
     $mpvVersion = "0.41.0"
@@ -170,7 +167,6 @@ function Ensure-Mpv {
 
         New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
 
-        # Try 7z (either on PATH or standalone 7zr.exe)
         $7zExe = if (Get-Command 7z -ErrorAction SilentlyContinue) { "7z" }
                  elseif (Get-Command 7zr -ErrorAction SilentlyContinue) { "7zr" }
                  else { $null }
@@ -190,17 +186,15 @@ function Ensure-Mpv {
             throw "Extraction failed with exit code $LASTEXITCODE"
         }
 
-        # Find mpv.exe — it might be in a versioned subdirectory inside the archive
         $mpvExe = Get-ChildItem -Path $extractDir -Recurse -Filter "mpv.exe" -ErrorAction SilentlyContinue |
                   Select-Object -First 1
 
         if ($mpvExe) {
-            $mpvDir = $mpvExe.DirectoryName
-            # Flatten: if it's in a subdirectory, move everything up
-            if ($mpvDir -ne $extractDir) {
-                Get-ChildItem -Path $mpvDir -File | Move-Item -Destination $extractDir -Force
-                Get-ChildItem -Path $mpvDir -Directory | Move-Item -Destination $extractDir -Force
-                Remove-Item $mpvDir -Force -ErrorAction SilentlyContinue
+            $mpvDirLocal = $mpvExe.DirectoryName
+            if ($mpvDirLocal -ne $extractDir) {
+                Get-ChildItem -Path $mpvDirLocal -File | Move-Item -Destination $extractDir -Force
+                Get-ChildItem -Path $mpvDirLocal -Directory | Move-Item -Destination $extractDir -Force
+                Remove-Item $mpvDirLocal -Force -ErrorAction SilentlyContinue
             }
             Write-Host "  ✓ mpv.exe ready at $extractDir"
             Add-ToPath -Dir $extractDir
@@ -211,11 +205,9 @@ function Ensure-Mpv {
         Write-Host "  ⚠ Direct download failed: $_"
     }
 
-    # Clean up temp files
     Remove-Item $archivePath -Force -ErrorAction SilentlyContinue
     Remove-Item "$env:TEMP\7zr.exe" -Force -ErrorAction SilentlyContinue
 
-    # ── Final check: search for installed exe and add to PATH ──────────
     $dir = Find-InstalledExe -Name "mpv"
     if ($dir) {
         Add-ToPath -Dir $dir
@@ -235,7 +227,6 @@ function Try-InstallWinget {
     Write-Host "  winget not found, attempting to install App Installer from Microsoft..."
     Write-Host "  (Downloading ~100 MB — this may take a moment)"
 
-    # Ensure VCLibs dependency (required for App Installer)
     try {
         $vcLibs = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
         $vcOut = "$env:TEMP\VCLibs.appx"
@@ -245,7 +236,6 @@ function Try-InstallWinget {
         Write-Host "  ⚠ Could not install VCLibs dependency: $_"
     }
 
-    # Download and install App Installer (winget)
     try {
         $url = "https://github.com/microsoft/winget-cli/releases/latest/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
         $out = "$env:TEMP\AppInstaller.msixbundle"
@@ -260,22 +250,6 @@ function Try-InstallWinget {
     }
 }
 
-# ── Main ────────────────────────────────────────────────────────────────────
-
-Write-Host "=== rgytui installer (Windows) ==="
-Write-Host ""
-
-# Bootstrap winget if possible — this makes the rest smoother
-$WingetAvailable = Try-InstallWinget
-
-# yt-dlp (mandatory)
-Write-Host ":: Installing yt-dlp..."
-Ensure-YtDlp
-
-# mpv (optional)
-Write-Host ":: Installing mpv..."
-Ensure-Mpv
-
 # ── Ensure Rust is installed ────────────────────────────────────────────────
 
 function Ensure-Rust {
@@ -288,44 +262,139 @@ function Ensure-Rust {
     $out = "$env:TEMP\rustup-init.exe"
     Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
     & $out -y --default-toolchain stable --profile default
-    # Add cargo to PATH for the rest of the script
     $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
     Write-Host "  ✓ Rust installed."
 }
 
-# ── Clone / update repo ─────────────────────────────────────────────────────
+# ── Build from source ────────────────────────────────────────────────────────
 
-if (-not (Test-Path -Path $RepoDir)) {
-    Write-Host ":: Cloning rgytui into $RepoDir..."
-    New-Item -ItemType Directory -Path $HomeDir -Force | Out-Null
-    git clone $RepoUrl $RepoDir
-} else {
-    Write-Host ":: Repository exists, updating..."
+function Build-FromSource {
+    if (-not (Test-Path -Path $RepoDir)) {
+        Write-Host ":: Cloning rgytui into $RepoDir..."
+        New-Item -ItemType Directory -Path $HomeDir -Force | Out-Null
+        git clone $RepoUrl $RepoDir
+    } else {
+        Write-Host ":: Repository exists, updating..."
+        Push-Location $RepoDir
+        git fetch
+        git pull --ff-only
+        Pop-Location
+    }
+
+    Ensure-Rust
+
+    Write-Host ":: Building rgytui (release)..."
     Push-Location $RepoDir
-    git fetch
-    git pull --ff-only
+    cargo build --release
     Pop-Location
+
+    Write-Host ":: Installing rgytui.exe to $BinDir..."
+    New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+    Copy-Item "$RepoDir\target\release\rgytui.exe" -Destination $RgytuiExe -Force
+
+    Write-Host ":: Adding rgytui to PATH..."
+    Add-ToPath -Dir $BinDir
 }
 
-# ── Build ───────────────────────────────────────────────────────────────────
+# ── Pre-built binary download ────────────────────────────────────────────────
 
-Ensure-Rust
+function Install-PreBuilt {
+    $arch = $env:PROCESSOR_ARCHITECTURE
+    if ($arch -ne "AMD64") {
+        Write-Host "ERROR: unsupported architecture ($arch)."
+        Write-Host "       Supported: AMD64 (x86_64)."
+        Write-Host "       Try -BuildFromSource to compile for your architecture."
+        exit 1
+    }
 
-Write-Host ":: Building rgytui (release)..."
-Push-Location $RepoDir
-cargo build --release
-Pop-Location
+    $target = "x86_64-pc-windows-msvc"
+    $archiveName = "rgytui-$target.zip"
 
-# ── Install binary ──────────────────────────────────────────────────────────
+    $label = if ($Nightly) { 'nightly' } else { 'latest' }
+    $releasesUrl = if ($Nightly) {
+        "https://api.github.com/repos/${RepoOwner}/${RepoName}/releases/tags/nightly"
+    } else {
+        "https://api.github.com/repos/${RepoOwner}/${RepoName}/releases/latest"
+    }
 
-Write-Host ":: Installing rgytui.exe to $BinDir..."
-New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
-Copy-Item "$RepoDir\target\release\rgytui.exe" -Destination $RgytuiExe -Force
+    Write-Host ":: Querying $label release..."
+    try {
+        $release = Invoke-RestMethod -Uri $releasesUrl -UseBasicParsing -ErrorAction Stop
+    } catch {
+        Write-Host "ERROR: Failed to query GitHub API."
+        Write-Host "       No release found or network error."
+        Write-Host "       Try building from source:"
+        Write-Host "         .\install.ps1 -BuildFromSource"
+        exit 1
+    }
 
-# ── Add to PATH ─────────────────────────────────────────────────────────────
+    $asset = $release.assets | Where-Object { $_.name -eq $archiveName } | Select-Object -First 1
+    if (-not $asset) {
+        Write-Host "ERROR: Could not find asset '$archiveName' in the release."
+        Write-Host "       Available assets:"
+        $release.assets | ForEach-Object { Write-Host "         - $($_.name)" }
+        Write-Host ""
+        Write-Host "       Try building from source:"
+        Write-Host "         .\install.ps1 -BuildFromSource"
+        exit 1
+    }
 
-Write-Host ":: Adding rgytui to PATH..."
-Add-ToPath -Dir $BinDir
+    Write-Host ":: Downloading $archiveName..."
+    $archivePath = "$env:TEMP\$archiveName"
+    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archivePath -UseBasicParsing
+    Write-Host "  ✓ Downloaded."
+
+    Write-Host ":: Extracting..."
+    New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+    Expand-Archive -Path $archivePath -DestinationPath $BinDir -Force
+    Remove-Item $archivePath -Force -ErrorAction SilentlyContinue
+    Write-Host "  ✓ Installed to $RgytuiExe"
+
+    Write-Host ":: Adding rgytui to PATH..."
+    Add-ToPath -Dir $BinDir
+}
+
+# ── Main ────────────────────────────────────────────────────────────────────
+
+Write-Host "=== rgytui installer (Windows) ==="
+Write-Host ""
+
+if ($BuildFromSource) {
+    Write-Host ":: Building from source..."
+    Write-Host ""
+
+    $WingetAvailable = Try-InstallWinget
+
+    Write-Host ":: Installing yt-dlp..."
+    Ensure-YtDlp
+
+    Write-Host ":: Installing mpv..."
+    Ensure-Mpv
+
+    Build-FromSource
+} else {
+    if ((Test-Path -Path $RgytuiExe) -and (-not $Force)) {
+        Write-Host ":: rgytui is already installed at $RgytuiExe"
+        try {
+            $response = Read-Host "  Overwrite? [y/N]"
+        } catch {
+            Write-Host "  ERROR: Cannot prompt for input. Re-run with -Force to overwrite."
+            exit 1
+        }
+        if ($response -notmatch '^[yY]') {
+            Write-Host "  Installation cancelled."
+            exit 0
+        }
+    }
+
+    Install-PreBuilt
+
+    Write-Host ":: Installing yt-dlp..."
+    Ensure-YtDlp
+
+    Write-Host ":: Installing mpv..."
+    Ensure-Mpv
+}
 
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "User")
 

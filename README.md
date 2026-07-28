@@ -1,8 +1,18 @@
 # rgytui 🎵
 
-> **R**ust **G**TK? No — **R**ust **G**orgeous **Y**ou**T**ube **UI**.
->
-> A modern TUI application to search, stream, and play YouTube music — right from your terminal.
+> **R**ust **G**orgeous **Y**ou**T**ube **UI** — a modern TUI application to search, stream, and play YouTube music from your terminal.
+
+<p align="center">
+  <img src="images/loading_music.png" alt="rgytui searching and loading music" width="720"/>
+  <br/>
+  <em>Searching and loading music from YouTube</em>
+</p>
+
+<p align="center">
+  <img src="images/playing_music.png" alt="rgytui playing music" width="720"/>
+  <br/>
+  <em>Playback with queue, volume control, and visualizer</em>
+</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/rustc-1.85%2B-orange" alt="Rustc"/>
@@ -29,7 +39,7 @@
 
 ## Installation 📦
 
-One command. Everything included: build dependencies, yt-dlp, mpv, and rgytui itself.
+One command. The installer downloads a pre-built binary — no Rust toolchain or compilation required. Only runtime dependencies (`yt-dlp`, `mpv`) are installed automatically.
 
 ### Linux / macOS
 
@@ -37,35 +47,50 @@ One command. Everything included: build dependencies, yt-dlp, mpv, and rgytui it
 curl -fsSL https://raw.githubusercontent.com/SantosRojas/rgytui/master/scripts/install.sh | bash
 ```
 
-The script will:
-1. Install build dependencies (pkg-config, Wayland, ALSA, GTK3)
-2. Install runtime dependencies (yt-dlp, mpv)
-3. Clone the repository to `~/.local/share/rgytui/repo`
-4. Build `rgytui --release`
-5. Symlink to `~/.local/bin/rgytui`
+The installer will:
+1. Detect your OS and architecture
+2. Download the matching pre-built binary from the latest GitHub Release
+3. Install it to `~/.local/bin/rgytui`
+4. Install runtime dependencies (`yt-dlp`, `mpv`) via your package manager
 
-> Make sure `~/.local/bin` is in your PATH.
+> Make sure `~/.local/bin` is in your `PATH`.
+
+#### Options
+
+```bash
+# Nightly build (latest commit on main)
+curl -fsSL ... | bash -s -- --nightly
+
+# Build from source instead
+curl -fsSL ... | bash -s -- --build-from-source
+
+# Force overwrite existing installation
+curl -fsSL ... | bash -s -- --force
+```
 
 ### Windows
 
-**1. Abrí PowerShell** (Windows + X → Windows PowerShell o Terminal)
-
-**2. Copiá y pegá esto** (una sola línea):
+Open PowerShell and run:
 
 ```powershell
 iwr -Uri https://raw.githubusercontent.com/SantosRojas/rgytui/master/scripts/install.cmd -OutFile install.cmd -UseBasicParsing; .\install.cmd
 ```
 
-Eso descarga el instalador y lo ejecuta. El instalador se encarga de todo: Rust, yt-dlp, compilar rgytui y agregarlo al PATH.
+The installer will:
+1. Download the pre-built binary from the latest GitHub Release
+2. Install it to `%LOCALAPPDATA%\rgytui\bin\rgytui.exe`
+3. Add it to your user `PATH`
+4. Install runtime dependencies (`yt-dlp`, `mpv`) via winget or direct download
 
-> Si preferís descargar el archivo manual: [install.cmd](https://github.com/SantosRojas/rgytui/raw/master/scripts/install.cmd) — click derecho → "Guardar enlace como..."
+> You may need to restart your terminal for PATH changes to take effect.
 
-El instalador:
-1. Instala Rust (rustup) — automático, sin preguntas
-2. Descarga yt-dlp — necesario para reproducir YouTube
-3. Opcional: mpv para video mode (lo podés instalar después)
-4. Clona el repositorio y compila rgytui
-5. Agrega al PATH del usuario
+#### Options
+
+```powershell
+.\install.ps1 -Nightly          # Nightly build
+.\install.ps1 -BuildFromSource   # Build from source
+.\install.ps1 -Force             # Overwrite without prompting
+```
 
 ### Updating
 
@@ -73,7 +98,13 @@ El instalador:
 rgytui update
 ```
 
-Pulls the latest source, rebuilds, and replaces the installed binary. No Rust toolchain required after the first install — `rgytui update` handles everything.
+Pulls the latest source, rebuilds, and replaces the installed binary. The update command requires git and cargo — it clones and compiles from source like the original installer.
+
+To switch to a new release binary instead, re-run the installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SantosRojas/rgytui/master/scripts/install.sh | bash -s -- --force
+```
 
 ---
 
@@ -125,7 +156,7 @@ q                 # Quit
 | [mpv](https://mpv.io) | ❌ No (video mode) | External video playback |
 
 All Rust dependencies are managed by Cargo:
-`ratatui` · `crossterm` · `tokio` · `reqwest` · `rodio` · `serde_json` · `tempfile`
+`ratatui` · `crossterm` · `tokio` · `rodio` · `serde_json` · `rustfft` · `rfd`
 
 ---
 
@@ -178,6 +209,7 @@ reqwest GET ──► tempfile ──► rodio::Decoder ──► rodio::Player 
 ```
 
 The application follows [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture/) (Ports & Adapters):
+
 - **Domain** — Pure business logic, zero external dependencies
 - **Application** — Use cases that orchestrate domain logic
 - **Infrastructure** — Adapters for external systems (yt-dlp, audio, HTTP, filesystem)
@@ -187,8 +219,7 @@ The application follows [Hexagonal Architecture](https://alistair.cockburn.us/he
 
 ## Configuration ⚙️
 
-Settings are persisted to `%APPDATA%\rgytui\settings.json` (Windows) or
-`~/.config/rgytui/settings.json` (Linux/macOS):
+Settings are persisted to `%APPDATA%\rgytui\settings.json` (Windows) or `~/.config/rgytui/settings.json` (Linux/macOS):
 
 ```json
 {
