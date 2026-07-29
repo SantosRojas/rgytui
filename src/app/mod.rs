@@ -45,6 +45,7 @@ pub struct App {
     last_click: Option<(Instant, u16, u16)>,
     download_semaphore: Arc<Semaphore>,
     audio_cache: Arc<AudioCache>,
+    last_saved_playlist_version: usize,
 }
 
 impl App {
@@ -111,6 +112,7 @@ impl App {
         // Load persisted playlist from disk
         let saved_playlist = config.load_playlist().await;
         playlist.load(saved_playlist);
+        let last_saved_playlist_version = playlist.playlist().version;
 
         let ui = UiState {
             config: ConfigState::new(
@@ -141,6 +143,7 @@ impl App {
             last_click: None,
             download_semaphore: Arc::new(Semaphore::new(3)),
             audio_cache: Arc::new(AudioCache::new()),
+            last_saved_playlist_version,
         }
     }
 

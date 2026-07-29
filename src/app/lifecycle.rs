@@ -20,6 +20,17 @@ impl App {
         self.pending_play = Some(song);
     }
 
+    pub(crate) async fn try_save_playlist(&mut self) {
+        let current = self.playlist.playlist().version;
+        if current != self.last_saved_playlist_version {
+            if let Err(e) = self.config.save_playlist(self.playlist.playlist()).await {
+                tracing::warn!("Failed to save playlist: {e}");
+            } else {
+                self.last_saved_playlist_version = current;
+            }
+        }
+    }
+
     pub(crate) async fn on_exit(&mut self) {
         // Signal cancellation to all spawned background tasks
         self.cancel_token.cancel();

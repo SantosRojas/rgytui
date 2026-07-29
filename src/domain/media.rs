@@ -87,6 +87,7 @@ impl From<RawSong> for Song {
 pub struct Playlist {
     pub name: String,
     pub songs: Vec<Song>,
+    #[serde(default)]
     pub current_index: usize,
     #[serde(default)]
     pub repeat_mode: RepeatMode,

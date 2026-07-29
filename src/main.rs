@@ -52,11 +52,7 @@ async fn main() -> Result<(), anyhow::Error> {
     };
     let mpv = MpvAdapter::new();
 
-    let mut playlist = PlaylistUseCase::new();
-    let saved = config.load_playlist().await;
-    for song in saved.songs {
-        playlist.add(song);
-    }
+    let playlist = PlaylistUseCase::new();
 
     let downloader_port: Arc<dyn DownloaderPort> = Arc::new(ytdlp.clone());
     let search_port: Arc<dyn MediaSearchPort> = Arc::new(ytdlp);

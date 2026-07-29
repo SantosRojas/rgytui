@@ -475,6 +475,7 @@ impl App {
                 }
                 Focus::SearchResults => {
                     self.schedule_play_selected();
+                    self.try_save_playlist().await;
                 }
                 Focus::QueueList => {
                     self.play_selected_from_queue();
@@ -514,6 +515,7 @@ impl App {
                 }
                 _ => {
                     self.schedule_play_selected();
+                    self.try_save_playlist().await;
                 }
             },
             KeyCode::Char('n') if self.ui.focus != Focus::SearchInput => {
@@ -572,7 +574,9 @@ impl App {
                                 NotificationLevel::Warning,
                             );
                         } else {
+                            let song = song.clone();
                             self.playlist.add(song.clone());
+                            self.try_save_playlist().await;
                             self.ui.push_notification(
                                 self.ui.tr("notif_added_to_queue")
                                     .replace("{}", &song.title),
@@ -593,6 +597,7 @@ impl App {
                         }
                     }
                     self.playlist.remove(idx);
+                    self.try_save_playlist().await;
                 }
             }
             KeyCode::Char('d') => {
@@ -622,6 +627,7 @@ impl App {
                         }
                     }
                     self.playlist.clear();
+                    self.try_save_playlist().await;
                 }
             }
             KeyCode::Char('s') => {
