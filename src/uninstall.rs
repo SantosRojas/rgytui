@@ -13,7 +13,6 @@
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
 
 /// Run `rgytui uninstall` — remove binary, repo, and clean up PATH.
 pub fn run_uninstall() -> Result<(), anyhow::Error> {
@@ -93,6 +92,8 @@ fn uninstall_windows(
     remove_ytdlp: bool,
     remove_mpv: bool,
 ) -> Result<(), anyhow::Error> {
+    use std::process::Command;
+
     let home_s = home.display();
     let bin_s = bin_dir.display();
     let repo_s = repo_dir.display();
@@ -212,7 +213,6 @@ fn uninstall_unix(
     let binary_s = binary_path.display();
     let repo_s = repo_dir.display();
     let home_s = home.display();
-    let bin_s = bin_dir.display();
 
     // Remove optional dependencies
     if remove_ytdlp {
