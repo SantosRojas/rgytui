@@ -8,6 +8,7 @@ pub struct InputBox<'a> {
     block: Option<Block<'a>>,
     value: &'a str,
     placeholder: &'a str,
+    cursor_visible: bool,
 }
 
 impl<'a> InputBox<'a> {
@@ -16,6 +17,7 @@ impl<'a> InputBox<'a> {
             block: None,
             value: "",
             placeholder: "",
+            cursor_visible: true,
         }
     }
 
@@ -33,6 +35,11 @@ impl<'a> InputBox<'a> {
         self.placeholder = placeholder;
         self
     }
+
+    pub fn cursor_visible(mut self, visible: bool) -> Self {
+        self.cursor_visible = visible;
+        self
+    }
 }
 
 impl Widget for InputBox<'_> {
@@ -45,10 +52,12 @@ impl Widget for InputBox<'_> {
             area
         };
 
+        let cursor_char = if self.cursor_visible { "█" } else { " " };
+
         if self.value.is_empty() {
             // Show placeholder in muted color with blinking cursor
             let paragraph = Paragraph::new(Line::from(vec![
-                ratatui::text::Span::styled("█", Style::default().fg(Color::White)),
+                ratatui::text::Span::styled(cursor_char, Style::default().fg(Color::White)),
                 ratatui::text::Span::styled(
                     format!(" {}", self.placeholder),
                     Style::default().fg(Color::Rgb(80, 80, 90)),
@@ -56,7 +65,7 @@ impl Widget for InputBox<'_> {
             ]));
             paragraph.render(inner, buf);
         } else {
-            let display = format!("{}█", self.value);
+            let display = format!("{}{}", self.value, cursor_char);
             let paragraph = Paragraph::new(Line::from(display));
             paragraph.render(inner, buf);
         }
