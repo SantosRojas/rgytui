@@ -18,7 +18,6 @@ use crate::shared::sync::lock_or_warn;
 struct SharedState {
     state: PlayerState,
     volume: f32,
-    position: f64,
     duration: f64,
 }
 
@@ -43,7 +42,6 @@ impl RodioAdapter {
             shared: Arc::new(Mutex::new(SharedState {
                 state: PlayerState::Idle,
                 volume: 0.8,
-                position: 0.0,
                 duration: 0.0,
             })),
             spectrum: Arc::new(Mutex::new(SpectrumFrame::default())),
@@ -75,7 +73,6 @@ impl RodioAdapter {
         let mut s = self.shared_mut();
         self.player.set_volume(s.volume);
         s.state = PlayerState::Playing;
-        s.position = 0.0;
         s.duration = total_duration;
 
         Ok(())
@@ -101,7 +98,6 @@ impl RodioAdapter {
         let mut s = self.shared_mut();
         self.player.set_volume(s.volume);
         s.state = PlayerState::Playing;
-        s.position = 0.0;
         s.duration = total_duration;
 
         Ok(())
@@ -125,9 +121,7 @@ impl RodioAdapter {
 
     pub fn stop(&mut self) -> Result<(), DomainError> {
         self.player.stop();
-        let mut s = self.shared_mut();
-        s.state = PlayerState::Stopped;
-        s.position = 0.0;
+        self.shared_mut().state = PlayerState::Stopped;
         Ok(())
     }
 
@@ -146,9 +140,7 @@ impl RodioAdapter {
     }
 
     pub fn current_position(&self) -> f64 {
-        let pos = self.player.get_pos().as_secs_f64();
-        self.shared_mut().position = pos;
-        pos
+        self.player.get_pos().as_secs_f64()
     }
 
     pub fn current_duration(&self) -> f64 {
