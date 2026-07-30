@@ -61,12 +61,13 @@ impl MpvAdapter {
         Ok(())
     }
 
-    pub fn is_mpv_installed() -> bool {
-        std::process::Command::new("mpv")
+    pub async fn is_mpv_installed() -> bool {
+        tokio::process::Command::new("mpv")
             .arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
+            .await
             .is_ok()
     }
 }

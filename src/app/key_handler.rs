@@ -604,7 +604,7 @@ impl App {
                 );
             }
             KeyCode::Char('v') => {
-                if let Err(e) = self.playback.toggle_mode() {
+                if let Err(e) = self.playback.toggle_mode().await {
                     self.ui.push_notification(
                         self.ui.tr("err_playback").replace("{}", &e.to_string()),
                         NotificationLevel::Error,

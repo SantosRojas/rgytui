@@ -59,7 +59,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // Fall back to Audio if mpv is not installed (e.g. user had legacy config with audio_mode: true)
     // Also persist the corrected audio_mode to config so the warning goes away permanently.
-    let initial_mode = if settings.audio_mode && !MpvAdapter::is_mpv_installed() {
+    let initial_mode = if settings.audio_mode && !MpvAdapter::is_mpv_installed().await {
         tracing::warn!("Video mode configured but mpv is not installed. Falling back to Audio.");
         config.settings_mut().audio_mode = false;
         if let Err(e) = config.save_settings().await {

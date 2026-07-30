@@ -31,7 +31,7 @@ impl PlaybackUseCase {
 
     /// Toggle audio/video mode. Returns an error if switching to video but
     /// mpv is not installed on the system.
-    pub fn toggle_mode(&mut self) -> Result<(), DomainError> {
+    pub async fn toggle_mode(&mut self) -> Result<(), DomainError> {
         if let Err(e) = self.stop() {
             tracing::warn!("Failed to stop while toggling mode: {}", e);
         }
@@ -39,7 +39,7 @@ impl PlaybackUseCase {
             AudioMode::Audio => AudioMode::Video,
             AudioMode::Video => AudioMode::Audio,
         };
-        if matches!(new_mode, AudioMode::Video) && !MpvAdapter::is_mpv_installed() {
+        if matches!(new_mode, AudioMode::Video) && !MpvAdapter::is_mpv_installed().await {
             return Err(DomainError::Player(
                 "mpv is not installed. Install mpv (https://mpv.io) to use video mode.".into(),
             ));
