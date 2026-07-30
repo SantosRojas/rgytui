@@ -318,8 +318,91 @@ impl App {
 
     #[allow(clippy::collapsible_match)]
     async fn handle_search_queue_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
+        // '/' — always switches to search input, regardless of focus
+        if key.code == KeyCode::Char('/') {
+            self.ui.focus = Focus::SearchInput;
+            self.ui.search.search_query.clear();
+            self.ui.active_screen = ActiveScreen::Search;
+            return Ok(false);
+        }
+
+        // Delegate by focus
+        match self.ui.focus {
+            Focus::SearchInput => self.handle_search_input(key),
+            Focus::SearchResults | Focus::QueueList => {
+                // Dispatch by key code to the appropriate sub-handler.
+                // Each key matches exactly one handler — no fallthrough.
+                match key.code {
+                    // Ctrl+u / Ctrl+d — always navigation (scroll)
+                    KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.handle_list_navigation(key)
+                    }
+                    KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.handle_list_navigation(key)
+                    }
+                    // Navigation keys
+                    KeyCode::BackTab
+                    | KeyCode::Tab
+                    | KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::Char('j' | 'k' | 'g' | 'G' | 'h') => {
+                        self.handle_list_navigation(key)
+                    }
+                    // Playback controls
+                    KeyCode::Char(' ')
+                    | KeyCode::Char('n' | 'p' | 'r' | '=' | '+' | '-' | '_' | 'v' | 's' | 'q' | 'Q') => {
+                        self.handle_playback_controls(key).await
+                    }
+                    // Queue actions (including Enter and plain d)
+                    KeyCode::Enter | KeyCode::Delete | KeyCode::Char('a' | 'd' | 'C' | 'c') => {
+                        self.handle_queue_actions(key).await
+                    }
+                    _ => Ok(false),
+                }
+            }
+        }
+    }
+
+    /// Keys active when focus is on the search input field: Tab, BackTab,
+    /// Backspace, typeable chars, and Enter (spawn search).
+    fn handle_search_input(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
         match key.code {
-            // ── Keyboard shortcuts (focus-gated — NOT in SearchInput) ──
+            KeyCode::Tab => {
+                self.ui.focus = Focus::SearchResults;
+            }
+            KeyCode::BackTab => {
+                self.ui.focus = Focus::QueueList;
+            }
+            KeyCode::Enter => {
+                if !self.ui.search.search_query.is_empty() {
+                    // Debounce: ignore rapid consecutive searches
+                    if let Some(last) = self.last_search
+                        && last.elapsed() < Duration::from_millis(300)
+                    {
+                        // too soon — skip
+                    } else {
+                        self.last_search = Some(Instant::now());
+                        self.ui.search.is_searching = true;
+                        self.ui.search.search_results.clear();
+                        let query = self.ui.search.search_query.clone();
+                        self.spawn_search(query, self.ui.config.default_search_limit);
+                    }
+                }
+            }
+            KeyCode::Backspace => {
+                self.ui.search.search_query.pop();
+            }
+            KeyCode::Char(c) if self.ui.search.search_query.len() < 200 => {
+                self.ui.search.search_query.push(c);
+            }
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    /// List navigation keys: Tab/Shift+Tab, j/k, g/G, Ctrl+u/d, Up/Down, h.
+    fn handle_list_navigation(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
+        match key.code {
             KeyCode::BackTab => {
                 // Shift+Tab — reverse focus cycle
                 self.ui.focus = match self.ui.focus {
@@ -335,11 +418,9 @@ impl App {
                         self.ui.search.selected_index = (self.ui.search.selected_index + 1)
                             .min(self.ui.search.search_results.len().saturating_sub(1));
                     }
-                    Focus::QueueList => {
-                        if !self.playlist.songs().is_empty() {
-                            self.ui.queue.queue_selected = (self.ui.queue.queue_selected + 1)
-                                .min(self.playlist.songs().len().saturating_sub(1));
-                        }
+                    Focus::QueueList if !self.playlist.songs().is_empty() => {
+                        self.ui.queue.queue_selected = (self.ui.queue.queue_selected + 1)
+                            .min(self.playlist.songs().len().saturating_sub(1));
                     }
                     _ => {}
                 }
@@ -350,10 +431,8 @@ impl App {
                     Focus::SearchResults => {
                         self.ui.search.selected_index = self.ui.search.selected_index.saturating_sub(1);
                     }
-                    Focus::QueueList => {
-                        if !self.playlist.songs().is_empty() {
-                            self.ui.queue.queue_selected = self.ui.queue.queue_selected.saturating_sub(1);
-                        }
+                    Focus::QueueList if !self.playlist.songs().is_empty() => {
+                        self.ui.queue.queue_selected = self.ui.queue.queue_selected.saturating_sub(1);
                     }
                     _ => {}
                 }
@@ -424,7 +503,6 @@ impl App {
                     _ => {}
                 }
             }
-            // ── Standard keys ──
             KeyCode::Tab => {
                 self.ui.focus = match self.ui.focus {
                     Focus::SearchInput => Focus::SearchResults,
@@ -436,10 +514,8 @@ impl App {
                 Focus::SearchResults => {
                     self.ui.search.selected_index = self.ui.search.selected_index.saturating_sub(1);
                 }
-                Focus::QueueList => {
-                    if !self.playlist.songs().is_empty() {
-                        self.ui.queue.queue_selected = self.ui.queue.queue_selected.saturating_sub(1);
-                    }
+                Focus::QueueList if !self.playlist.songs().is_empty() => {
+                    self.ui.queue.queue_selected = self.ui.queue.queue_selected.saturating_sub(1);
                 }
                 _ => {}
             },
@@ -448,54 +524,21 @@ impl App {
                     self.ui.search.selected_index = (self.ui.search.selected_index + 1)
                         .min(self.ui.search.search_results.len().saturating_sub(1));
                 }
-                Focus::QueueList => {
-                    if !self.playlist.songs().is_empty() {
-                        self.ui.queue.queue_selected = (self.ui.queue.queue_selected + 1)
-                            .min(self.playlist.songs().len().saturating_sub(1));
-                    }
+                Focus::QueueList if !self.playlist.songs().is_empty() => {
+                    self.ui.queue.queue_selected = (self.ui.queue.queue_selected + 1)
+                        .min(self.playlist.songs().len().saturating_sub(1));
                 }
                 _ => {}
             },
-            KeyCode::Enter => match self.ui.focus {
-                Focus::SearchInput => {
-                    if !self.ui.search.search_query.is_empty() {
-                        // Debounce: ignore rapid consecutive searches
-                        if let Some(last) = self.last_search
-                            && last.elapsed() < Duration::from_millis(300)
-                        {
-                            // too soon — skip
-                        } else {
-                            self.last_search = Some(Instant::now());
-                            self.ui.search.is_searching = true;
-                            self.ui.search.search_results.clear();
-                            let query = self.ui.search.search_query.clone();
-                            self.spawn_search(query, self.ui.config.default_search_limit);
-                        }
-                    }
-                }
-                Focus::SearchResults => {
-                    self.schedule_play_selected();
-                    self.try_save_playlist().await;
-                }
-                Focus::QueueList => {
-                    self.play_selected_from_queue();
-                }
-            },
-            KeyCode::Backspace => {
-                if self.ui.focus == Focus::SearchInput {
-                    self.ui.search.search_query.pop();
-                }
-            }
-            KeyCode::Char(c) if self.ui.focus == Focus::SearchInput => {
-                if self.ui.search.search_query.len() < 200 {
-                    self.ui.search.search_query.push(c);
-                }
-            }
-            KeyCode::Char('/') => {
-                self.ui.focus = Focus::SearchInput;
-                self.ui.search.search_query.clear();
-                self.ui.active_screen = ActiveScreen::Search;
-            }
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    /// Playback control keys: space (play/pause), n/p (next/prev), r (repeat),
+    /// +/- (volume), v (toggle video mode), s (settings), q/Q (exit).
+    async fn handle_playback_controls(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
+        match key.code {
             KeyCode::Char(' ') => match self.playback.state() {
                 PlayerState::Playing => {
                     if self.playback.pause().is_ok() {
@@ -563,6 +606,30 @@ impl App {
                     );
                 }
             }
+            KeyCode::Char('s') => {
+                self.ui.active_screen = ActiveScreen::Settings;
+                self.ui.focus = Focus::SearchInput;
+            }
+            KeyCode::Char('q') | KeyCode::Char('Q') => return Ok(true),
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    /// Queue/playlist action keys: Enter (play selected), a (add to queue),
+    /// Delete (remove from queue), d (download popup), C/c (clear queue).
+    async fn handle_queue_actions(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
+        match key.code {
+            KeyCode::Enter => match self.ui.focus {
+                Focus::SearchResults => {
+                    self.schedule_play_selected();
+                    self.try_save_playlist().await;
+                }
+                Focus::QueueList => {
+                    self.play_selected_from_queue();
+                }
+                _ => {}
+            },
             KeyCode::Char('a') => {
                 if self.ui.focus == Focus::SearchResults && !self.ui.search.search_results.is_empty() {
                     let idx = self.ui.search.selected_index;
@@ -617,27 +684,19 @@ impl App {
                     self.ui.download.download_format = 0;
                 }
             }
-            KeyCode::Char('C') | KeyCode::Char('c') => {
-                if self.ui.focus == Focus::QueueList {
-                    // Remove cached audio for all queued songs before clearing
-                    let ids: Vec<String> = self.playlist.songs().iter().map(|s| s.id.clone()).collect();
-                    for id in &ids {
-                        if let Err(e) = self.audio_cache.remove(id).await {
-                            tracing::warn!("Failed to remove cache for '{}': {e}", id);
-                        }
+            KeyCode::Char('C') | KeyCode::Char('c') if self.ui.focus == Focus::QueueList => {
+                // Remove cached audio for all queued songs before clearing
+                let ids: Vec<String> = self.playlist.songs().iter().map(|s| s.id.clone()).collect();
+                for id in &ids {
+                    if let Err(e) = self.audio_cache.remove(id).await {
+                        tracing::warn!("Failed to remove cache for '{}': {e}", id);
                     }
-                    self.playlist.clear();
-                    self.try_save_playlist().await;
                 }
+                self.playlist.clear();
+                self.try_save_playlist().await;
             }
-            KeyCode::Char('s') => {
-                self.ui.active_screen = ActiveScreen::Settings;
-                self.ui.focus = Focus::SearchInput;
-            }
-            KeyCode::Char('q') | KeyCode::Char('Q') => return Ok(true),
             _ => {}
         }
-
         Ok(false)
     }
 }

@@ -1,4 +1,5 @@
 use std::process::Stdio;
+use std::time::Duration;
 
 use tokio::process::Command;
 
@@ -11,10 +12,12 @@ pub struct MpvAdapter {
 
 impl Drop for MpvAdapter {
     fn drop(&mut self) {
-        if let Some(mut child) = self.child.take()
-            && let Err(e) = child.start_kill()
-        {
-            tracing::warn!("Failed to kill mpv on drop: {}", e);
+        if let Some(mut child) = self.child.take() {
+            if let Err(e) = child.start_kill() {
+                tracing::warn!("Failed to kill mpv on drop: {}", e);
+            }
+            // Non-blocking reap attempt to avoid zombie processes
+            let _ = child.try_wait();
         }
     }
 }
@@ -26,7 +29,7 @@ impl MpvAdapter {
 
     pub async fn play_video(&mut self, url: &str, _song: Song) -> Result<(), DomainError> {
         // Kill any previous mpv child before spawning a new one
-        if let Err(e) = self.stop() {
+        if let Err(e) = self.stop().await {
             tracing::warn!("Failed to stop previous mpv before spawning new: {}", e);
         }
 
@@ -47,13 +50,13 @@ impl MpvAdapter {
         Ok(())
     }
 
-    pub fn stop(&mut self) -> Result<(), DomainError> {
+    pub async fn stop(&mut self) -> Result<(), DomainError> {
         if let Some(mut child) = self.child.take() {
             if let Err(e) = child.start_kill() {
                 tracing::warn!("Failed to kill mpv child: {}", e);
             }
-            // Wait briefly for the process to exit (don't hang)
-            let _ = child.try_wait();
+            // Block on child exit with 3s timeout to prevent zombie processes
+            let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
         }
         Ok(())
     }
@@ -145,10 +148,11 @@ mod tests {
         }
 
         // Clean up
-        backend.stop().unwrap();
+        backend.stop().await.unwrap();
         assert!(backend.child.is_none(), "child field should be None after stop");
 
-        // After stop, the process must be dead
+        // After stop, the process must be dead (stop() blocks until child exits,
+        // but give the OS a moment to release the PID)
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(!process_exists(pid), "child process should be killed after stop");
     }
@@ -164,22 +168,24 @@ mod tests {
         assert!(status_before.is_none(), "child should be alive before stop");
 
         backend.child = Some(child);
-        assert!(backend.stop().is_ok());
+        assert!(backend.stop().await.is_ok());
         // After stop, child field must be None (taken)
         assert!(backend.child.is_none(), "child field should be None after stop");
 
-        // Give the OS a moment to reap the killed process
+        // stop() now blocks until child exits via timeout(3s, child.wait()),
+        // so the process should be reaped immediately after stop returns.
+        // Still give the OS a moment to release the PID.
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         // The process must no longer be running
         assert!(!process_exists(pid), "child process should be killed after stop");
     }
 
-    #[test]
-    fn test_stop_safe_with_no_child() {
+    #[tokio::test]
+    async fn test_stop_safe_with_no_child() {
         let mut backend = MpvAdapter::new();
         // stop() on a backend with no child should not error
-        assert!(backend.stop().is_ok());
+        assert!(backend.stop().await.is_ok());
     }
 
     #[test]
@@ -221,7 +227,7 @@ mod tests {
         // After replacing, the backend has one child
         assert!(backend.child.is_some());
         // Clean up
-        backend.stop().unwrap();
+        backend.stop().await.unwrap();
         assert!(backend.child.is_none());
     }
 }

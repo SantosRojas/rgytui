@@ -154,6 +154,24 @@ impl App {
         let mut terminal = Self::init_terminal()?;
         let _guard = TerminalGuard;
 
+        // Spawn SIGTERM watcher (Unix only). Crossterm's raw mode intercepts
+        // Ctrl+C at the terminal level — the tokio::signal::ctrl_c() branch
+        // below catches any signals that bypass crossterm.
+        // The oneshot channel allows us to bridge the cfg boundary cleanly.
+        let (sigterm_tx, mut sigterm_rx) = tokio::sync::oneshot::channel::<()>();
+        #[cfg(unix)]
+        tokio::spawn(async move {
+            if let Ok(mut sig) = tokio::signal::unix::signal(
+                tokio::signal::unix::SignalKind::terminate(),
+            ) {
+                sig.recv().await;
+                let _ = sigterm_tx.send(());
+            }
+        });
+        // On non-unix, keep the sender alive so the receiver never resolves.
+        #[cfg(not(unix))]
+        let _ = sigterm_tx;
+
         loop {
             self.ui.dismiss_old_notifications();
 
@@ -202,6 +220,14 @@ impl App {
                     self.update_progress();
                     self.ui.tick_spinner();
                     false
+                }
+                // OS-level signal handlers (catch SIGINT/SIGTERM that bypass
+                // crossterm's input thread, e.g. from process managers).
+                _ = tokio::signal::ctrl_c() => {
+                    true
+                }
+                _ = &mut sigterm_rx => {
+                    true
                 }
             };
 
@@ -537,6 +563,30 @@ mod tests {
 
     fn songs(count: u32) -> Vec<Song> {
         (0..count).map(song).collect()
+    }
+
+    // ── update_progress guard (Task 1.3) ────────────────────────────
+
+    #[tokio::test]
+    async fn test_update_progress_guard_with_no_song() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+
+        // No song loaded (current_song is None by default)
+        app.ui.player.current_song = None;
+
+        // Add songs to playlist so there would be something to advance to
+        for s in songs(3) {
+            app.playlist.add(s);
+        }
+
+        // Call update_progress — with guard, this should be a no-op
+        app.update_progress();
+
+        // Guard should prevent auto-advance: no pending play
+        assert!(app.pending_play.is_none(), "no auto-advance when no song loaded");
     }
 
     // ── CancellationToken (Task 2.1) ──────────────────────────────────

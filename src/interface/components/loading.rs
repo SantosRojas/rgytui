@@ -13,16 +13,14 @@ pub struct LoadingWidget {
     frame: usize,
     accent: Color,
     message: String,
-    style: LoadingAnimation,
 }
 
 impl LoadingWidget {
-    pub fn new(frame: usize, accent: Color, style: LoadingAnimation) -> Self {
+    pub fn new(frame: usize, accent: Color, _style: LoadingAnimation) -> Self {
         Self {
             frame,
             accent,
             message: String::new(),
-            style,
         }
     }
 
@@ -190,11 +188,7 @@ impl Widget for LoadingWidget {
             height: anim_rows as u16,
         };
 
-        // This match will be dead-code-eliminated by the compiler
-        // since LoadingAnimation only has Pulse.
-        if self.style == LoadingAnimation::Pulse {
-            render_pulse(buf, anim_area, self.frame, accent_rgb);
-        }
+        render_pulse(buf, anim_area, self.frame, accent_rgb);
 
         // Render message row
         if msg_rows > 0 {

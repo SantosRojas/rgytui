@@ -2,6 +2,11 @@ use super::*;
 
 impl App {
     pub(crate) fn update_progress(&mut self) {
+        // Guard: skip 50ms polling work when no song is loaded
+        if self.ui.player.current_song.is_none() {
+            return;
+        }
+
         if self.playback.state() == PlayerState::Playing && self.playback.is_sink_empty() {
             if let Err(e) = self.playback.stop() {
                 tracing::warn!("Failed to stop on auto-advance: {}", e);

@@ -1,30 +1,21 @@
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum LoadingAnimation {
-    Pulse,
-}
+pub struct LoadingAnimation;
 
 impl LoadingAnimation {
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "pulse" => Self::Pulse,
-            _ => Self::Pulse,
-        }
+    pub fn from_str(_s: &str) -> Self {
+        Self
     }
 
     pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Pulse => "pulse",
-        }
+        "pulse"
     }
 
     pub fn display_name(&self) -> &'static str {
-        match self {
-            Self::Pulse => "Pulse",
-        }
+        "Pulse"
     }
 
     pub fn next(&self) -> Self {
-        Self::Pulse
+        Self
     }
 }
 
@@ -34,24 +25,23 @@ mod tests {
 
     #[test]
     fn loading_animation_defaults_to_pulse() {
-        assert_eq!(LoadingAnimation::from_str(""), LoadingAnimation::Pulse);
-        assert_eq!(LoadingAnimation::from_str("wave"), LoadingAnimation::Pulse);
-        assert_eq!(LoadingAnimation::from_str("skeleton"), LoadingAnimation::Pulse);
-        assert_eq!(LoadingAnimation::from_str("bar"), LoadingAnimation::Pulse);
-        assert_eq!(LoadingAnimation::from_str("pulse"), LoadingAnimation::Pulse);
-        assert_eq!(LoadingAnimation::from_str("bounce"), LoadingAnimation::Pulse);
+        assert_eq!(LoadingAnimation::from_str(""), LoadingAnimation);
+        assert_eq!(LoadingAnimation::from_str("wave"), LoadingAnimation);
+        assert_eq!(LoadingAnimation::from_str("skeleton"), LoadingAnimation);
+        assert_eq!(LoadingAnimation::from_str("bar"), LoadingAnimation);
+        assert_eq!(LoadingAnimation::from_str("pulse"), LoadingAnimation);
+        assert_eq!(LoadingAnimation::from_str("bounce"), LoadingAnimation);
     }
 
     #[test]
     fn loading_animation_cycles_correctly() {
-        assert_eq!(LoadingAnimation::Pulse.next(), LoadingAnimation::Pulse);
+        assert_eq!(LoadingAnimation.next(), LoadingAnimation);
     }
 
     #[test]
     fn loading_animation_display_names_are_not_empty() {
-        for variant in [LoadingAnimation::Pulse] {
-            assert!(!variant.display_name().is_empty());
-            assert!(!variant.as_str().is_empty());
-        }
+        let anim = LoadingAnimation;
+        assert!(!anim.display_name().is_empty());
+        assert!(!anim.as_str().is_empty());
     }
 }

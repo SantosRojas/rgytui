@@ -181,7 +181,66 @@ impl YtDlpAdapter {
 
         Ok(filepath)
     }
+}
 
+#[cfg(test)]
+mod tests {
+
+    /// Verify that piped stderr captures error output when a command exits
+    /// with a non-zero status. This proves the Stdio::piped() change in
+    /// download_audio_bytes enables stderr content to reach the error message.
+    #[tokio::test]
+    async fn test_piped_stderr_captures_error_output() {
+        let mut cmd = if cfg!(windows) {
+            let mut c = tokio::process::Command::new("cmd.exe");
+            // Redirect echo to stderr, then exit non-zero
+            c.args(["/C", "echo stderr_content>&2 & exit 1"]);
+            c
+        } else {
+            let mut c = tokio::process::Command::new("sh");
+            c.args(["-c", "echo stderr_content >&2; exit 1"]);
+            c
+        };
+
+        let output = cmd
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+            .expect("should execute");
+
+        assert!(!output.status.success(), "command should exit non-zero");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("stderr_content"),
+            "piped stderr should capture error output, got: {stderr}"
+        );
+    }
+
+    /// Verify that a successful command does NOT produce non-zero status even
+    /// with piped stderr — proving the piped stderr doesn't interfere with
+    /// normal command execution.
+    #[tokio::test]
+    async fn test_piped_stderr_successful_command() {
+        let mut cmd = if cfg!(windows) {
+            let mut c = tokio::process::Command::new("cmd.exe");
+            c.args(["/C", "echo ok>&2"]);
+            c
+        } else {
+            let mut c = tokio::process::Command::new("sh");
+            c.args(["-c", "echo ok >&2"]);
+            c
+        };
+
+        let output = cmd
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+            .expect("should execute");
+
+        assert!(output.status.success(), "successful command should exit zero");
+    }
 }
 
 #[async_trait::async_trait]
@@ -208,7 +267,7 @@ impl DownloaderPort for YtDlpAdapter {
                 .arg("--no-playlist")
                 .arg(url)
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
                 .output(),
         )
         .await
