@@ -10,7 +10,7 @@ use ratatui::Frame;
 use crate::domain::loading_animation::LoadingAnimation;
 use crate::interface::components::status_bar::StatusBar;
 use crate::interface::screens::{help_screen, player_screen, search_screen, settings_screen};
-use crate::interface::state::{ActiveScreen, Focus, NotificationLevel, RenderSnapshot, UiState};
+use crate::interface::state::{ActiveScreen, Focus, NotificationLevel, RenderSnapshot, UiState, UpgradeChoice};
 use crate::interface::theme::Theme;
 
 pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme, panel_rects: &mut HashMap<String, Rect>) {
@@ -99,7 +99,7 @@ pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, the
     }
 
     if state.show_upgrade_popup {
-        render_upgrade_popup(frame, frame.area(), state, theme);
+        render_upgrade_popup(frame, frame.area(), state, theme, panel_rects);
     }
 
     render_notifications(frame, frame.area(), state, theme);
@@ -188,12 +188,30 @@ fn render_exit_confirmation_popup(frame: &mut Frame, area: Rect, state: &UiState
     frame.render_widget(popup, popup_area);
 }
 
-fn render_upgrade_popup(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
+fn render_upgrade_popup(
+    frame: &mut Frame,
+    area: Rect,
+    state: &UiState,
+    theme: &Theme,
+    panel_rects: &mut HashMap<String, Rect>,
+) {
     let version = state
         .pending_upgrade
         .as_ref()
         .map(|(v, _)| v.as_str())
         .unwrap_or("??");
+
+    let sel = Style::default().fg(theme.accent).add_modifier(Modifier::BOLD);
+    let idle = Style::default().fg(theme.text_muted);
+    let text_style = Style::default().fg(theme.text_secondary);
+
+    let is_yes = state.upgrade_selection == UpgradeChoice::Yes;
+    let (yb, yt, nb, nt) = if is_yes {
+        (&sel, &sel, &idle, &text_style)
+    } else {
+        (&idle, &text_style, &sel, &sel)
+    };
+
     let confirm_text = vec![
         Line::from(Span::styled(
             state.tr("upgrade_available").replace("{}", version),
@@ -201,14 +219,15 @@ fn render_upgrade_popup(frame: &mut Frame, area: Rect, state: &UiState, theme: &
         )),
         Line::from(Span::styled("", Style::default())),
         Line::from(vec![
-            Span::styled("  [", Style::default().fg(theme.text_muted)),
-            Span::styled("y", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-            Span::styled("] ", Style::default().fg(theme.text_muted)),
-            Span::styled(state.tr("yes"), Style::default().fg(theme.text_secondary)),
-            Span::styled("    [", Style::default().fg(theme.text_muted)),
-            Span::styled("n", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-            Span::styled("] ", Style::default().fg(theme.text_muted)),
-            Span::styled(state.tr("no"), Style::default().fg(theme.text_secondary)),
+            Span::styled("  ", Style::default()),
+            Span::styled("[", *yb),
+            Span::styled(state.tr("yes"), *yt),
+            Span::styled("]", *yb),
+            Span::styled("      ", Style::default()),
+            Span::styled("[", *nb),
+            Span::styled(state.tr("no"), *nt),
+            Span::styled("]", *nb),
+            Span::styled("  ", Style::default()),
         ]),
     ];
 
@@ -226,6 +245,9 @@ fn render_upgrade_popup(frame: &mut Frame, area: Rect, state: &UiState, theme: &
     let popup_area = centered_rect(54, 5, area);
     frame.render_widget(Clear, popup_area);
     frame.render_widget(popup, popup_area);
+
+    // Store popup rect for mouse click detection
+    panel_rects.insert("upgrade_popup".into(), popup_area);
 }
 
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {

@@ -25,40 +25,7 @@ impl App {
 
         // Handle upgrade confirmation response first (higher priority than exit)
         if self.ui.show_upgrade_popup {
-            return match key.code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    self.ui.show_upgrade_popup = false;
-                    self.ui.is_upgrading = true;
-                    self.ui.push_notification(
-                        self.ui.tr("upgrade_downloading"),
-                        NotificationLevel::Info,
-                    );
-                    if let Some((version, url)) = self.ui.pending_upgrade.take() {
-                        let event_tx = self.event_tx.clone();
-                        tokio::spawn(async move {
-                            // Run blocking IO (HTTP download + file write) on the
-                            // blocking thread pool so the async runtime stays responsive.
-                            let result = tokio::task::spawn_blocking(move || {
-                                crate::update::perform_upgrade(&version, &url)
-                            })
-                            .await;
-                            let msg = match result {
-                                Ok(Ok(())) => "upgrade_complete".into(),
-                                Ok(Err(e)) => format!("upgrade_failed: {e}"),
-                                Err(e) => format!("upgrade_failed: spawn error {e}"),
-                            };
-                            let _ = event_tx.send(AppEvent::Notification(msg)).await;
-                        });
-                    }
-                    Ok(false)
-                }
-                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                    self.ui.show_upgrade_popup = false;
-                    self.ui.pending_upgrade = None;
-                    Ok(false)
-                }
-                _ => Ok(false),
-            };
+            return self.handle_upgrade_popup_key(key);
         }
 
         // Block exit during upgrade — the binary is being replaced
@@ -129,6 +96,63 @@ impl App {
 
         // Search/Queue screen — dispatch by focus
         self.handle_search_queue_key(key).await
+    }
+
+    fn handle_upgrade_popup_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
+        use crate::interface::state::UpgradeChoice;
+
+        match key.code {
+            KeyCode::Left => {
+                self.ui.upgrade_selection = UpgradeChoice::Yes;
+            }
+            KeyCode::Right => {
+                self.ui.upgrade_selection = UpgradeChoice::No;
+            }
+            KeyCode::Enter => {
+                match self.ui.upgrade_selection {
+                    UpgradeChoice::Yes => self.start_upgrade(),
+                    UpgradeChoice::No => {
+                        self.ui.show_upgrade_popup = false;
+                        self.ui.pending_upgrade = None;
+                    }
+                }
+            }
+            // Backward compat: y/Y also confirms, n/N/Esc dismisses
+            KeyCode::Char('y') | KeyCode::Char('Y') => self.start_upgrade(),
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                self.ui.show_upgrade_popup = false;
+                self.ui.pending_upgrade = None;
+            }
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    pub(crate) fn start_upgrade(&mut self) {
+        use crate::interface::state::{NotificationLevel, UpgradeChoice};
+
+        self.ui.show_upgrade_popup = false;
+        self.ui.is_upgrading = true;
+        self.ui.upgrade_selection = UpgradeChoice::Yes; // reset for next time
+        self.ui.push_notification(
+            self.ui.tr("upgrade_downloading"),
+            NotificationLevel::Info,
+        );
+        if let Some((version, url)) = self.ui.pending_upgrade.take() {
+            let event_tx = self.event_tx.clone();
+            tokio::spawn(async move {
+                let result = tokio::task::spawn_blocking(move || {
+                    crate::update::perform_upgrade(&version, &url)
+                })
+                .await;
+                let msg = match result {
+                    Ok(Ok(())) => "upgrade_complete".into(),
+                    Ok(Err(e)) => format!("upgrade_failed: {e}"),
+                    Err(e) => format!("upgrade_failed: spawn error {e}"),
+                };
+                let _ = event_tx.send(AppEvent::Notification(msg)).await;
+            });
+        }
     }
 
     fn handle_download_popup_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {

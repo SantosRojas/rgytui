@@ -53,10 +53,12 @@ jobs:
 
       - name: Prepare archive (zip)
         if: matrix.ext == 'zip'
-        shell: bash
+        shell: pwsh
         run: |
-          cd target/${{ matrix.target }}/release
-          zip ../../../rgytui-${{ matrix.target }}.zip rgytui.exe
+          $root = (Get-Item .).FullName
+          Push-Location target/${{ matrix.target }}/release
+          Compress-Archive -Path rgytui.exe -DestinationPath "$root/rgytui-${{ matrix.target }}.zip" -Force
+          Pop-Location
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

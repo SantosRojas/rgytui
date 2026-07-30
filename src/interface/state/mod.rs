@@ -18,6 +18,12 @@ pub use settings::*;
 
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub enum UpgradeChoice {
+    Yes,
+    No,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ActiveScreen {
     Search,
     Player,
@@ -45,6 +51,7 @@ pub struct UiState {
     pub show_upgrade_popup: bool,
     /// (version_tag, download_url)
     pub pending_upgrade: Option<(String, String)>,
+    pub upgrade_selection: UpgradeChoice,
     pub is_upgrading: bool,
     pub player: PlayerViewState,
     pub queue: QueueViewState,
@@ -99,6 +106,7 @@ impl Default for UiState {
             show_exit_confirmation: false,
             show_upgrade_popup: false,
             pending_upgrade: None,
+            upgrade_selection: UpgradeChoice::Yes,
             is_upgrading: false,
         }
     }

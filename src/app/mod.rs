@@ -301,6 +301,35 @@ impl App {
                 let row = event.row;
                 let is_double = self.is_double_click(col, row);
 
+                // Upgrade popup check (modal — intercepts all clicks when visible)
+                if self.ui.show_upgrade_popup {
+                    if let Some(pr) = self.panel_rects.get("upgrade_popup") {
+                        let hit = row >= pr.y && row < pr.y + pr.height
+                            && col >= pr.x && col < pr.x + pr.width;
+                        if hit {
+                            // Button row is y+3 (top border + 2 content lines)
+                            if row == pr.y + 3 {
+                                let mid = pr.x + pr.width / 2;
+                                if col < mid {
+                                    self.ui.upgrade_selection = crate::interface::state::UpgradeChoice::Yes;
+                                } else {
+                                    self.ui.upgrade_selection = crate::interface::state::UpgradeChoice::No;
+                                }
+                                // Use key handler's Enter logic
+                                match self.ui.upgrade_selection {
+                                    crate::interface::state::UpgradeChoice::Yes => self.start_upgrade(),
+                                    crate::interface::state::UpgradeChoice::No => {
+                                        self.ui.show_upgrade_popup = false;
+                                        self.ui.pending_upgrade = None;
+                                    }
+                                }
+                            }
+                            // Click consumed — don't fall through to panels below
+                            return;
+                        }
+                    }
+                }
+
                 // Phase 1: resolve click target using rects (immutable borrow only)
                 enum HitTarget {
                     SearchInput,
