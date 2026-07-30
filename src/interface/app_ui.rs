@@ -89,6 +89,10 @@ pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, the
         render_exit_confirmation_popup(frame, frame.area(), state, theme);
     }
 
+    if state.show_upgrade_popup {
+        render_upgrade_popup(frame, frame.area(), state, theme);
+    }
+
     render_notifications(frame, frame.area(), state, theme);
 }
 
@@ -171,6 +175,46 @@ fn render_exit_confirmation_popup(frame: &mut Frame, area: Rect, state: &UiState
         .alignment(ratatui::layout::Alignment::Center);
 
     let popup_area = centered_rect(50, 5, area);
+    frame.render_widget(Clear, popup_area);
+    frame.render_widget(popup, popup_area);
+}
+
+fn render_upgrade_popup(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
+    let version = state
+        .pending_upgrade
+        .as_ref()
+        .map(|(v, _)| v.as_str())
+        .unwrap_or("??");
+    let confirm_text = vec![
+        Line::from(Span::styled(
+            state.tr("upgrade_available").replace("{}", version),
+            Style::default().fg(theme.text),
+        )),
+        Line::from(Span::styled("", Style::default())),
+        Line::from(vec![
+            Span::styled("  [", Style::default().fg(theme.text_muted)),
+            Span::styled("y", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("] ", Style::default().fg(theme.text_muted)),
+            Span::styled(state.tr("yes"), Style::default().fg(theme.text_secondary)),
+            Span::styled("    [", Style::default().fg(theme.text_muted)),
+            Span::styled("n", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("] ", Style::default().fg(theme.text_muted)),
+            Span::styled(state.tr("no"), Style::default().fg(theme.text_secondary)),
+        ]),
+    ];
+
+    let popup = Paragraph::new(confirm_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title(format!(" {} ", state.tr("upgrade_title")))
+                .border_style(Style::default().fg(theme.accent))
+                .style(Style::default().bg(Color::Rgb(20, 25, 50))),
+        )
+        .alignment(ratatui::layout::Alignment::Center);
+
+    let popup_area = centered_rect(54, 5, area);
     frame.render_widget(Clear, popup_area);
     frame.render_widget(popup, popup_area);
 }

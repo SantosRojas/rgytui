@@ -91,6 +91,23 @@ impl App {
                     NotificationLevel::Warning,
                 );
             }
+            AppEvent::UpgradeAvailable(version, url) => {
+                self.ui.pending_upgrade = Some((version, url));
+                self.ui.show_upgrade_popup = true;
+            }
+            AppEvent::Notification(msg) => {
+                self.ui.is_upgrading = false;
+                let (key, level) = if msg.starts_with("upgrade_complete") {
+                    ("upgrade_complete", NotificationLevel::Success)
+                } else if msg.starts_with("upgrade_failed") {
+                    ("upgrade_failed", NotificationLevel::Error)
+                } else {
+                    // Generic notification — use as-is
+                    self.ui.push_notification(msg, NotificationLevel::Info);
+                    return;
+                };
+                self.ui.push_notification(self.ui.tr(key), level);
+            }
         }
     }
 }

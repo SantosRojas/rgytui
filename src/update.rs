@@ -1,7 +1,7 @@
 //! Self-update logic for rgytui.
 //!
-//! `rgytui update` and `rgytui upgrade` download the latest precompiled
-//! binary from GitHub Releases and replace the installed binary.
+//! Internal helpers used by the TUI upgrade popup. The app checks for new
+//! versions at startup and offers to upgrade through a modal dialog.
 //!
 //! The install location is determined by:
 //!
@@ -17,32 +17,20 @@ const GH_OWNER: &str = "SantosRojas";
 const GH_REPO: &str = "rgytui";
 const UA: &str = concat!("rgytui-updater/", env!("CARGO_PKG_VERSION"));
 
-/// Run `rgytui update` / `rgytui upgrade` — download latest binary release.
-pub fn run_update() -> Result<(), anyhow::Error> {
-    let home = install_home();
-    let bin_dir = home.join("bin");
-    std::fs::create_dir_all(&bin_dir)?;
-
-    let target_name = binary_name();
-    let dst = bin_dir.join(&target_name);
-
-    // ── 1. Detect platform asset name ──────────────────────────────────────
+/// Check the latest release on GitHub and return `(tag_name, download_url)`
+/// for the current platform. Returns `None` if already up to date.
+pub fn check_latest() -> Result<Option<(String, String)>, anyhow::Error> {
     let asset_name = detect_asset_name()?;
-    let ext = asset_extension(&asset_name);
-
-    // ── 2. Fetch latest release from GitHub ────────────────────────────────
-    eprintln!(":: Checking latest version...");
     let release = fetch_latest_release()?;
-    eprintln!("   Latest: {}", release.tag_name);
-    match current_version() {
-        Ok(current) if current == release.tag_name => {
-            eprintln!("✓ Already up to date ({})", release.tag_name);
-            return Ok(());
+
+    // Skip if already at latest version
+    if let Ok(current) = current_version() {
+        if current == release.tag_name {
+            return Ok(None);
         }
-        _ => {}
     }
 
-    // ── 3. Find matching asset ─────────────────────────────────────────────
+    // Find matching asset for this platform
     let asset = release
         .assets
         .iter()
@@ -55,18 +43,23 @@ pub fn run_update() -> Result<(), anyhow::Error> {
             )
         })?;
 
-    // ── 4. Download ────────────────────────────────────────────────────────
-    eprintln!(":: Downloading {}...", asset_name);
-    let archive_bytes = download(&asset.browser_download_url)?;
-    eprintln!("   Downloaded {} bytes", archive_bytes.len());
+    Ok(Some((release.tag_name, asset.browser_download_url.clone())))
+}
 
-    // ── 5. Extract binary ──────────────────────────────────────────────────
-    eprintln!(":: Extracting...");
+/// Download, extract, and install the binary from a given release URL.
+pub fn perform_upgrade(version: &str, url: &str) -> Result<(), anyhow::Error> {
+    let home = install_home();
+    let bin_dir = home.join("bin");
+    std::fs::create_dir_all(&bin_dir)?;
+
+    let target_name = binary_name();
+    let dst = bin_dir.join(&target_name);
+    let asset_name = detect_asset_name()?;
+    let ext = asset_extension(&asset_name);
+
+    let archive_bytes = download(url)?;
     let binary_bytes = extract_binary(&archive_bytes, ext, &target_name)?;
-
-    // ── 6. Install binary ──────────────────────────────────────────────────
-    eprintln!(":: Installing...");
-    install_binary(&binary_bytes, &dst, &release.tag_name)?;
+    install_binary(&binary_bytes, &dst, version)?;
 
     Ok(())
 }

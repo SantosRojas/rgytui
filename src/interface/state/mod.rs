@@ -42,6 +42,10 @@ pub struct UiState {
     pub download: DownloadPopupState,
     pub notifications: NotificationState,
     pub show_exit_confirmation: bool,
+    pub show_upgrade_popup: bool,
+    /// (version_tag, download_url)
+    pub pending_upgrade: Option<(String, String)>,
+    pub is_upgrading: bool,
     pub player: PlayerViewState,
     pub queue: QueueViewState,
 }
@@ -93,6 +97,9 @@ impl Default for UiState {
             player: PlayerViewState::default(),
             queue: QueueViewState::default(),
             show_exit_confirmation: false,
+            show_upgrade_popup: false,
+            pending_upgrade: None,
+            is_upgrading: false,
         }
     }
 }

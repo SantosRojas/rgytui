@@ -143,6 +143,25 @@ impl App {
             );
         }
 
+        // Spawn background upgrade check — non-blocking, runs once at startup.
+        // If a new version is found, the user gets a modal popup to upgrade.
+        let check_tx = event_tx.clone();
+        tokio::spawn(async move {
+            // Brief delay so the TUI has time to render before a popup appears
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            match crate::update::check_latest() {
+                Ok(Some((version, url))) => {
+                    let _ = check_tx
+                        .send(AppEvent::UpgradeAvailable(version, url))
+                        .await;
+                }
+                Ok(None) => {} // already up to date
+                Err(e) => {
+                    tracing::info!("Upgrade check failed (expected offline/rate-limit): {e}");
+                }
+            }
+        });
+
         Self {
             ui,
             playback,

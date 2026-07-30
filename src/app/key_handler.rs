@@ -23,6 +23,48 @@ impl App {
             };
         }
 
+        // Handle upgrade confirmation response first (higher priority than exit)
+        if self.ui.show_upgrade_popup {
+            return match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    self.ui.show_upgrade_popup = false;
+                    self.ui.is_upgrading = true;
+                    self.ui.push_notification(
+                        self.ui.tr("upgrade_downloading"),
+                        NotificationLevel::Info,
+                    );
+                    if let Some((version, url)) = self.ui.pending_upgrade.take() {
+                        let event_tx = self.event_tx.clone();
+                        tokio::spawn(async move {
+                            match crate::update::perform_upgrade(&version, &url) {
+                                Ok(()) => {
+                                    let _ = event_tx
+                                        .send(AppEvent::Notification(
+                                            "upgrade_complete".into(),
+                                        ))
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = event_tx
+                                        .send(AppEvent::Notification(
+                                            format!("upgrade_failed: {e}"),
+                                        ))
+                                        .await;
+                                }
+                            }
+                        });
+                    }
+                    Ok(false)
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    self.ui.show_upgrade_popup = false;
+                    self.ui.pending_upgrade = None;
+                    Ok(false)
+                }
+                _ => Ok(false),
+            };
+        }
+
         // Universal keys — always work regardless of screen or focus
         if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Ok(true);

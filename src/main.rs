@@ -29,7 +29,6 @@ async fn main() -> Result<(), anyhow::Error> {
     // Handle subcommands before starting the TUI
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(|s| s.as_str()) {
-        Some("update") | Some("upgrade") => return crate::update::run_update(),
         Some("uninstall") => return crate::uninstall::run_uninstall(),
         _ => {}
     }

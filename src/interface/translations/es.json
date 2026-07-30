@@ -100,5 +100,10 @@
   "notif_exit_confirmed": "¿Salir después de que termine la descarga? Presiona 'y' para confirmar",
   "confirm_exit_title": "Confirmar Salida",
   "yes": "Sí",
-  "no": "No"
+  "no": "No",
+  "upgrade_available": "Nueva versión {} disponible. ¿Actualizar ahora?",
+  "upgrade_title": "Actualización Disponible",
+  "upgrade_downloading": "Descargando actualización...",
+  "upgrade_complete": "¡Actualización completa! Reiniciá rgytui para usar la nueva versión.",
+  "upgrade_failed": "Error al actualizar: {}"
 }

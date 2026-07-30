@@ -26,4 +26,8 @@ pub enum AppEvent {
     VideoStreamReady { song: Song, stream_url: String },
     /// Show a confirmation dialog when Ctrl+C is pressed during an active download.
     ShowConfirmExit,
+    /// A new rgytui version is available: (version_tag, download_url)
+    UpgradeAvailable(String, String),
+    /// Generic notification message displayed in the UI.
+    Notification(String),
 }
