@@ -1,6 +1,7 @@
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LoadingAnimation;
 
+#[allow(dead_code)]
 impl LoadingAnimation {
     pub fn from_str(_s: &str) -> Self {
         Self

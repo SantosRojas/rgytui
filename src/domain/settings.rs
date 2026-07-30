@@ -14,16 +14,10 @@ pub struct AppSettings {
     pub download_path: String,
     #[serde(default = "default_language")]
     pub language: String,
-    #[serde(default = "default_loading_animation")]
-    pub loading_animation: String,
 }
 
 fn default_language() -> String {
     "en".into()
-}
-
-fn default_loading_animation() -> String {
-    "pulse".into()
 }
 
 impl Default for AppSettings {
@@ -36,7 +30,6 @@ impl Default for AppSettings {
             accent_color: "#00ffff".into(),
             download_path: String::new(),
             language: "en".into(),
-            loading_animation: "pulse".into(),
         }
     }
 }

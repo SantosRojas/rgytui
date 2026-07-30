@@ -107,7 +107,6 @@ impl App {
             AppSettings::default()
         });
         let language = i18n.language().to_string();
-        let loading_animation = crate::domain::loading_animation::LoadingAnimation::from_str(&settings.loading_animation);
 
         // Load persisted playlist from disk
         let saved_playlist = config.load_playlist().await;
@@ -122,7 +121,6 @@ impl App {
                 i18n,
                 settings.default_search_limit,
                 settings.download_path.clone(),
-                loading_animation,
             ),
             ..UiState::default()
         };
