@@ -2,83 +2,90 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
-
-permissions:
-  contents: write
-
-env:
-  CARGO_TERM_COLOR: always
-  BINARY_NAME: rgytui
+    tags:
+      - "v*"
 
 jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            archive: tar.gz
+            ext: tar.gz
           - target: x86_64-apple-darwin
-            os: macos-latest
-            archive: tar.gz
+            os: macos-13
+            ext: tar.gz
           - target: aarch64-apple-darwin
             os: macos-latest
-            archive: tar.gz
+            ext: tar.gz
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            archive: zip
+            ext: zip
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: ${{ matrix.target }}
 
-      - name: Install system dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt update
-          sudo apt install -y pkg-config libwayland-dev libxkbcommon-dev libasound2-dev libgtk-3-dev
-
-      - name: Build release
+      - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Build artifacts (Unix)
-        if: matrix.archive == 'tar.gz'
+      - name: Prepare archive (tar.gz)
+        if: matrix.ext == 'tar.gz'
+        shell: bash
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../${{ env.BINARY_NAME }}-${{ matrix.target }}.tar.gz ${{ env.BINARY_NAME }}
-          cd -
+          tar czf ../../../rgytui-${{ matrix.target }}.tar.gz rgytui
 
-      - name: Build artifacts (Windows)
-        if: matrix.archive == 'zip'
-        shell: pwsh
+      - name: Prepare archive (zip)
+        if: matrix.ext == 'zip'
+        shell: bash
         run: |
-          Compress-Archive -Path target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe -DestinationPath ${{ env.BINARY_NAME }}-${{ matrix.target }}.zip
+          cd target/${{ matrix.target }}/release
+          zip ../../../rgytui-${{ matrix.target }}.zip rgytui.exe
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
-          path: ${{ env.BINARY_NAME }}-${{ matrix.target }}.*
+          name: rgytui-${{ matrix.target }}.${{ matrix.ext }}
+          path: rgytui-${{ matrix.target }}.${{ matrix.ext }}
 
   release:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: rgytui-*
-          merge-multiple: true
+    permissions:
+      contents: write
 
-      - name: Release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate SHA256 checksums
+        working-directory: artifacts
+        run: |
+          shopt -s globstar
+          sha256sum **/*.tar.gz **/*.zip > checksums.txt
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: rgytui-*
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+            artifacts/**/checksums.txt
