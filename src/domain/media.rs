@@ -185,3 +185,276 @@ impl Playlist {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn song(id: &str) -> Song {
+        Song {
+            id: id.to_string(),
+            title: format!("Song {id}"),
+            channel: "Test".into(),
+            duration: 120.0,
+            thumbnail: None,
+            webpage_url: format!("https://youtube.com/watch?v={id}"),
+        }
+    }
+
+    #[test]
+    fn playlist_default_is_empty_queue() {
+        let p = Playlist::default();
+        assert!(p.songs.is_empty());
+        assert_eq!(p.name, "Queue");
+        assert_eq!(p.current_index, 0);
+        assert_eq!(p.version, 0);
+    }
+
+    #[test]
+    fn playlist_add_appends_song() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        assert_eq!(p.songs.len(), 1);
+        assert_eq!(p.songs[0].id, "a");
+    }
+
+    #[test]
+    fn playlist_add_increments_version() {
+        let mut p = Playlist::default();
+        assert_eq!(p.version, 0);
+        p.add(song("a"));
+        assert_eq!(p.version, 1);
+        p.add(song("b"));
+        assert_eq!(p.version, 2);
+    }
+
+    #[test]
+    fn playlist_current_song_returns_none_when_empty() {
+        let p = Playlist::default();
+        assert!(p.current_song().is_none());
+    }
+
+    #[test]
+    fn playlist_current_song_returns_first_song_after_add() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        assert_eq!(p.current_song().map(|s| s.id.as_str()), Some("a"));
+    }
+
+    #[test]
+    fn playlist_next_increments_index() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        p.add(song("b"));
+        p.add(song("c"));
+        assert_eq!(p.current_index, 0);
+        p.next();
+        assert_eq!(p.current_index, 1);
+        assert_eq!(p.current_song().map(|s| s.id.as_str()), Some("b"));
+    }
+
+    #[test]
+    fn playlist_next_at_end_without_repeat_returns_none() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        p.add(song("b"));
+        // Move to last song
+        p.next();
+        // Now at "b", there's no more
+        assert!(p.next().is_none());
+    }
+
+    #[test]
+    fn playlist_next_wraps_with_repeat_all() {
+        let mut p = Playlist::default();
+        p.repeat_mode = RepeatMode::All;
+        p.add(song("a"));
+        p.add(song("b"));
+        p.next();
+        p.next(); // past last
+        assert!(p.current_song().is_some());
+        assert_eq!(p.current_index, 0);
+    }
+
+    #[test]
+    fn playlist_next_on_empty_returns_none() {
+        let mut p = Playlist::default();
+        assert!(p.next().is_none());
+    }
+
+    #[test]
+    fn playlist_previous_decrements_index() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        p.add(song("b"));
+        p.set_current_index(1);
+        p.previous();
+        assert_eq!(p.current_index, 0);
+        assert_eq!(p.current_song().map(|s| s.id.as_str()), Some("a"));
+    }
+
+    #[test]
+    fn playlist_previous_at_start_without_repeat_returns_none() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        assert!(p.previous().is_none());
+    }
+
+    #[test]
+    fn playlist_previous_wraps_with_repeat_all() {
+        let mut p = Playlist::default();
+        p.repeat_mode = RepeatMode::All;
+        p.add(song("a"));
+        p.add(song("b"));
+        p.previous(); // at 0, wraps to end
+        assert_eq!(p.current_index, 1);
+    }
+
+    #[test]
+    fn playlist_previous_on_empty_returns_none() {
+        let mut p = Playlist::default();
+        assert!(p.previous().is_none());
+    }
+
+    #[test]
+    fn playlist_remove_current_adjusts_index() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        p.add(song("b"));
+        p.add(song("c"));
+        p.set_current_index(1); // "b"
+        p.remove(1);
+        assert_eq!(p.songs.len(), 2);
+        // current was "b" (removed), so index clamps to min(1, 1) = 1 → "c"
+        assert_eq!(p.current_song().map(|s| s.id.as_str()), Some("c"));
+    }
+
+    #[test]
+    fn playlist_remove_before_current_shifts_index() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        p.add(song("b"));
+        p.add(song("c"));
+        p.set_current_index(2); // "c"
+        p.remove(0); // remove "a"
+        assert_eq!(p.current_index, 1);
+        assert_eq!(p.current_song().map(|s| s.id.as_str()), Some("c"));
+    }
+
+    #[test]
+    fn playlist_remove_after_current_does_not_affect_index() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        p.add(song("b"));
+        p.add(song("c"));
+        p.set_current_index(0); // "a"
+        p.remove(2); // remove "c"
+        assert_eq!(p.current_index, 0);
+        assert_eq!(p.current_song().map(|s| s.id.as_str()), Some("a"));
+    }
+
+    #[test]
+    fn playlist_remove_last_current_song_empty() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        p.remove(0);
+        assert_eq!(p.songs.len(), 0);
+        assert_eq!(p.current_index, 0);
+        assert!(p.current_song().is_none());
+    }
+
+    #[test]
+    fn playlist_remove_out_of_range_does_nothing() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        let v = p.version; // 1 after add
+        p.remove(10);
+        assert_eq!(p.songs.len(), 1);
+        assert_eq!(p.version, v); // not incremented again
+    }
+
+    #[test]
+    fn playlist_remove_increments_version() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        p.add(song("b"));
+        let v = p.version;
+        p.remove(0);
+        assert!(p.version > v);
+    }
+
+    #[test]
+    fn playlist_clear_empties_all() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        p.add(song("b"));
+        p.set_current_index(1);
+        p.clear();
+        assert!(p.songs.is_empty());
+        assert_eq!(p.current_index, 0);
+    }
+
+    #[test]
+    fn playlist_clear_increments_version() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        let v = p.version;
+        p.clear();
+        assert!(p.version > v);
+    }
+
+    #[test]
+    fn playlist_len_reflects_song_count() {
+        let mut p = Playlist::default();
+        assert_eq!(p.len(), 0);
+        p.add(song("a"));
+        assert_eq!(p.len(), 1);
+        p.add(song("b"));
+        assert_eq!(p.len(), 2);
+    }
+
+    #[test]
+    fn playlist_set_current_index_valid() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        p.add(song("b"));
+        p.set_current_index(1);
+        assert_eq!(p.current_index, 1);
+    }
+
+    #[test]
+    fn playlist_set_current_index_out_of_bounds_does_not_change() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        p.set_current_index(5);
+        assert_eq!(p.current_index, 0);
+    }
+
+    #[test]
+    fn playlist_set_current_index_empty_does_not_panic() {
+        let mut p = Playlist::default();
+        p.set_current_index(0);
+        assert_eq!(p.current_index, 0);
+    }
+
+    #[test]
+    fn playlist_songs_returns_slice() {
+        let mut p = Playlist::default();
+        p.add(song("a"));
+        let s = p.songs();
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].id, "a");
+    }
+
+    #[test]
+    fn playlist_repeat_mode_default_is_none() {
+        assert_eq!(RepeatMode::default(), RepeatMode::None);
+    }
+
+    #[test]
+    fn playlist_repeat_mode_cycle() {
+        assert_eq!(RepeatMode::None.next(), RepeatMode::All);
+        assert_eq!(RepeatMode::All.next(), RepeatMode::One);
+        assert_eq!(RepeatMode::One.next(), RepeatMode::None);
+    }
+}

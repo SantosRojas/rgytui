@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::Rect;
 use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
 
@@ -17,7 +19,6 @@ pub(crate) use crate::infrastructure::audio::cache::AudioCache;
 use crate::domain::settings::AppSettings;
 use crate::interface::app_ui;
 pub(crate) use crate::interface::state::{ActiveScreen, ConfigState, Focus, NotificationLevel, RenderSnapshot, UiState};
-use ratatui::layout::Rect;
 pub(crate) use crate::shared::event::AppEvent;
 use crate::shared::event::InputEvent;
 
@@ -46,6 +47,7 @@ pub struct App {
     download_semaphore: Arc<Semaphore>,
     audio_cache: Arc<AudioCache>,
     last_saved_playlist_version: usize,
+    panel_rects: HashMap<String, Rect>,
 }
 
 impl App {
@@ -113,7 +115,7 @@ impl App {
         playlist.load(saved_playlist);
         let last_saved_playlist_version = playlist.playlist().version;
 
-        let ui = UiState {
+        let mut ui = UiState {
             config: ConfigState::new(
                 settings.theme.clone(),
                 settings.accent_color.clone(),
@@ -124,6 +126,22 @@ impl App {
             ),
             ..UiState::default()
         };
+
+        // Warn if yt-dlp is missing — every search/download depends on it
+        if !tokio::process::Command::new("yt-dlp")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await
+            .is_ok()
+        {
+            ui.push_notification(
+                "⚠ yt-dlp is not installed. Search, download, and playback will not work. \
+                 Install it from https://github.com/yt-dlp/yt-dlp".into(),
+                NotificationLevel::Warning,
+            );
+        }
 
         Self {
             ui,
@@ -142,6 +160,7 @@ impl App {
             download_semaphore: Arc::new(Semaphore::new(3)),
             audio_cache: Arc::new(AudioCache::new()),
             last_saved_playlist_version,
+            panel_rects: HashMap::new(),
         }
     }
 
@@ -180,7 +199,7 @@ impl App {
             let theme = self.ui.get_or_create_theme();
             let render_state = RenderSnapshot::from_use_cases(&self.playback, &mut self.playlist);
             terminal.draw(|frame| {
-                app_ui::render(frame, &self.ui, &render_state, &theme);
+                app_ui::render(frame, &self.ui, &render_state, &theme, &mut self.panel_rects);
             })?;
 
             if self.handle_pending_play().await {
@@ -272,7 +291,7 @@ impl App {
                 }
 
                 let target = {
-                    let rects = self.ui.panel_rects.borrow();
+                    let rects = &self.panel_rects;
 
                     let hit = |rect: &Rect| -> bool {
                         row >= rect.y && row < rect.y + rect.height
@@ -1363,7 +1382,7 @@ mod tests {
         app.ui.search.search_results = songs(5);
         app.ui.active_screen = ActiveScreen::Search;
         app.ui.focus = Focus::SearchInput;
-        app.ui.panel_rects.borrow_mut().insert(
+        app.panel_rects.insert(
             "search_results".to_string(),
             Rect { x: 0, y: 3, width: 100, height: 30 },
         );
@@ -1384,7 +1403,7 @@ mod tests {
         app.ui.search.search_results = songs(5);
         app.ui.active_screen = ActiveScreen::Search;
         app.ui.focus = Focus::SearchInput;
-        app.ui.panel_rects.borrow_mut().insert(
+        app.panel_rects.insert(
             "search_results".to_string(),
             Rect { x: 0, y: 3, width: 100, height: 30 },
         );
@@ -1409,7 +1428,7 @@ mod tests {
         }
         app.ui.active_screen = ActiveScreen::Search;
         app.ui.focus = Focus::SearchResults;
-        app.ui.panel_rects.borrow_mut().insert(
+        app.panel_rects.insert(
             "queue".to_string(),
             Rect { x: 0, y: 3, width: 100, height: 30 },
         );
@@ -1431,7 +1450,7 @@ mod tests {
         };
         app.ui.active_screen = ActiveScreen::Search;
         app.ui.focus = Focus::SearchInput;
-        app.ui.panel_rects.borrow_mut().insert(
+        app.panel_rects.insert(
             "search_input".to_string(),
             Rect { x: 0, y: 0, width: 100, height: 3 },
         );
@@ -1454,7 +1473,7 @@ mod tests {
         app.ui.search.search_results = vec![]; // empty
         app.ui.active_screen = ActiveScreen::Search;
         app.ui.focus = Focus::SearchInput;
-        app.ui.panel_rects.borrow_mut().insert(
+        app.panel_rects.insert(
             "search_results".to_string(),
             Rect { x: 0, y: 3, width: 100, height: 30 },
         );
@@ -1486,7 +1505,7 @@ mod tests {
         app.ui.search.search_results = songs(5);
         app.ui.active_screen = ActiveScreen::Search;
         app.ui.focus = Focus::SearchInput;
-        app.ui.panel_rects.borrow_mut().insert(
+        app.panel_rects.insert(
             "search_results".to_string(),
             Rect { x: 0, y: 3, width: 100, height: 30 },
         );
@@ -1513,7 +1532,7 @@ mod tests {
         }
         app.ui.active_screen = ActiveScreen::Search;
         app.ui.focus = Focus::SearchResults;
-        app.ui.panel_rects.borrow_mut().insert(
+        app.panel_rects.insert(
             "queue".to_string(),
             Rect { x: 0, y: 3, width: 100, height: 30 },
         );
@@ -1539,7 +1558,7 @@ mod tests {
         app.ui.search.search_results = songs(5);
         app.ui.active_screen = ActiveScreen::Search;
         app.ui.focus = Focus::SearchInput;
-        app.ui.panel_rects.borrow_mut().insert(
+        app.panel_rects.insert(
             "search_results".to_string(),
             Rect { x: 0, y: 3, width: 100, height: 30 },
         );
@@ -1565,7 +1584,7 @@ mod tests {
         app.ui.search.search_results = songs(5);
         app.ui.active_screen = ActiveScreen::Search;
         app.ui.focus = Focus::SearchInput;
-        app.ui.panel_rects.borrow_mut().insert(
+        app.panel_rects.insert(
             "search_results".to_string(),
             Rect { x: 0, y: 3, width: 100, height: 30 },
         );

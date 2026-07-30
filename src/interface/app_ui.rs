@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::prelude::Widget;
 use ratatui::style::{Color, Modifier, Style};
@@ -11,7 +13,7 @@ use crate::interface::screens::{help_screen, player_screen, search_screen, setti
 use crate::interface::state::{ActiveScreen, Focus, NotificationLevel, RenderSnapshot, UiState};
 use crate::interface::theme::Theme;
 
-pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
+pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme, panel_rects: &mut HashMap<String, Rect>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -61,9 +63,9 @@ pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, the
                 .constraints([Constraint::Length(3), Constraint::Min(1)])
                 .split(hybrid_chunks[1]);
 
-            state.panel_rects.borrow_mut().insert("queue".to_string(), left_chunks[1]);
-            state.panel_rects.borrow_mut().insert("search_input".to_string(), right_chunks[0]);
-            state.panel_rects.borrow_mut().insert("search_results".to_string(), right_chunks[1]);
+            panel_rects.insert("queue".to_string(), left_chunks[1]);
+            panel_rects.insert("search_input".to_string(), right_chunks[0]);
+            panel_rects.insert("search_results".to_string(), right_chunks[1]);
 
             render_hybrid(frame, main_area, state, snapshot, theme);
         }

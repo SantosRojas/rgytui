@@ -25,6 +25,10 @@ impl App {
         if current != self.last_saved_playlist_version {
             if let Err(e) = self.config.save_playlist(self.playlist.playlist()).await {
                 tracing::warn!("Failed to save playlist: {e}");
+                self.ui.push_notification(
+                    format!("Failed to save playlist: {}", e),
+                    crate::interface::state::NotificationLevel::Warning,
+                );
             } else {
                 self.last_saved_playlist_version = current;
             }
