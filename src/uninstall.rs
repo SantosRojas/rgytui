@@ -12,7 +12,7 @@
 //!    - Windows: `%LOCALAPPDATA%\rgytui`
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Run `rgytui uninstall` — remove binary, repo, and clean up PATH.
 pub fn run_uninstall() -> Result<(), anyhow::Error> {
@@ -85,10 +85,10 @@ pub fn run_uninstall() -> Result<(), anyhow::Error> {
 
 #[cfg(windows)]
 fn uninstall_windows(
-    home: &PathBuf,
-    bin_dir: &PathBuf,
-    repo_dir: &PathBuf,
-    _binary_path: &PathBuf,
+    home: &Path,
+    bin_dir: &Path,
+    repo_dir: &Path,
+    _binary_path: &Path,
     remove_ytdlp: bool,
     remove_mpv: bool,
 ) -> Result<(), anyhow::Error> {
@@ -201,10 +201,10 @@ Start-Sleep 3
 
 #[cfg(not(windows))]
 fn uninstall_unix(
-    home: &PathBuf,
-    bin_dir: &PathBuf,
-    repo_dir: &PathBuf,
-    binary_path: &PathBuf,
+    home: &Path,
+    bin_dir: &Path,
+    repo_dir: &Path,
+    binary_path: &Path,
     remove_ytdlp: bool,
     remove_mpv: bool,
 ) -> Result<(), anyhow::Error> {
