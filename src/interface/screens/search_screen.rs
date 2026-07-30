@@ -25,7 +25,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, _snapshot: &Render
 
     let placeholder_text = state.tr("search_title");
     // Blink cursor every ~24 frames ≈ 400ms at 60fps
-    let cursor_visible = (state.player.spinner_frame / 24).is_multiple_of(2);
+    let cursor_visible = (state.player.spinner_frame / 12).is_multiple_of(2);
     let input_box = InputBox::new()
         .cursor_visible(cursor_visible)
         .block(

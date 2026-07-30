@@ -52,7 +52,7 @@ impl Widget for InputBox<'_> {
             area
         };
 
-        let cursor_char = if self.cursor_visible { "█" } else { " " };
+        let cursor_char = if self.cursor_visible { "▎" } else { " " };
 
         if self.value.is_empty() {
             // Show placeholder in muted color with blinking cursor
