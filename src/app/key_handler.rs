@@ -176,15 +176,27 @@ impl App {
                     );
                 }
                 4 => {
+                    // Try native file dialog; fall back gracefully in headless
+                    // environments (SSH, tmux, WSL without X server) where rfd
+                    // would panic or return None.
                     let dir = tokio::task::spawn_blocking(|| {
-                        rfd::FileDialog::new()
-                            .set_title("Select Download Folder")
-                            .pick_folder()
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            rfd::FileDialog::new()
+                                .set_title("Select Download Folder")
+                                .pick_folder()
+                        }))
+                        .ok()
+                        .flatten()
                     })
                     .await
                     .unwrap_or(None);
                     if let Some(p) = dir {
                         self.ui.config.download_path = p.to_string_lossy().to_string();
+                    } else {
+                        self.ui.push_notification(
+                            self.ui.tr("notif_manual_path"),
+                            NotificationLevel::Info,
+                        );
                     }
                 }
                 5 => {

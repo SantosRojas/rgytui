@@ -91,6 +91,7 @@
   "notif_volume": "Volumen: {:.0}%",
   "notif_theme": "Tema: {}",
   "notif_accent": "Color de acento cambiado",
+  "notif_manual_path": "Sin pantalla gráfica. Escribí la ruta directamente.",
   "notif_search_count": "{} resultados encontrados",
   "notif_repeat_off": "Repetición: Desactivada",
   "notif_repeat_all": "Repetición: Todo",

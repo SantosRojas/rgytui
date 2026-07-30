@@ -91,6 +91,7 @@
   "notif_volume": "Volume: {:.0}%",
   "notif_theme": "Theme: {}",
   "notif_accent": "Accent color changed",
+  "notif_manual_path": "No display available. Type the path directly.",
   "notif_search_count": "Found {} results",
   "notif_repeat_off": "Repeat: Off",
   "notif_repeat_all": "Repeat: All",
