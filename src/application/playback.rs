@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use tempfile::NamedTempFile;
-
 use crate::application::ports::{AudioPlaybackPort, DownloaderPort};
 use crate::domain::audio_mode::AudioMode;
 use crate::domain::error::DomainError;
@@ -15,7 +13,6 @@ pub struct PlaybackUseCase {
     audio: Box<dyn AudioPlaybackPort>,
     mpv: MpvAdapter,
     mode: AudioMode,
-    temp_file: Option<NamedTempFile>,
 }
 
 impl PlaybackUseCase {
@@ -25,7 +22,6 @@ impl PlaybackUseCase {
             audio,
             mpv,
             mode,
-            temp_file: None,
         }
     }
 
@@ -52,42 +48,6 @@ impl PlaybackUseCase {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub async fn play(&mut self, song: &Song) -> Result<(), DomainError> {
-        match self.mode {
-            AudioMode::Video => {
-                if !MpvAdapter::is_mpv_installed() {
-                    return Err(DomainError::Player(
-                        "mpv is not installed. Install mpv (https://mpv.io) to use video mode."
-                            .into(),
-                    ));
-                }
-                let stream_url = self.downloader.get_stream_url(&song.webpage_url, false).await?;
-                self.mpv.play_video(&stream_url, song.clone()).await?;
-                Ok(())
-            }
-            AudioMode::Audio => {
-                self.download_and_play(song).await
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn download_and_play(&mut self, song: &Song) -> Result<(), DomainError> {
-        let tmp = NamedTempFile::new()?;
-        let path = tmp.path().to_owned();
-        // Assign temp_file immediately so Drop cleans up on early error return.
-        self.temp_file = Some(tmp);
-
-        // Delegate download to the discrete DownloaderPort (no duplicate yt-dlp command).
-        let data = self.downloader.download_audio_bytes(&song.webpage_url).await?;
-
-        tokio::fs::write(&path, &data).await?;
-        self.audio.play_file(&path, song.clone())?;
-
-        Ok(())
-    }
-
     /// Play audio from in-memory bytes (used after background download completes).
     pub fn play_bytes(&mut self, data: Vec<u8>, song: Song) -> Result<(), DomainError> {
         self.audio.play_bytes(data, song)
@@ -111,7 +71,6 @@ impl PlaybackUseCase {
     }
 
     pub fn stop(&mut self) -> Result<(), DomainError> {
-        self.temp_file = None;
         self.audio.stop()
     }
 

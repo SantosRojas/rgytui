@@ -28,24 +28,12 @@ impl AudioCache {
         Self { cache_dir }
     }
 
-    /// Create a cache at a specific path (useful in tests).
-    #[allow(dead_code)]
-    pub fn with_dir(path: PathBuf) -> Self {
-        Self { cache_dir: path }
-    }
-
     /// Full path on disk for a given song ID.
     ///
     /// Song IDs from yt-dlp are YouTube video IDs (`[a-zA-Z0-9_-]+`),
     /// which are safe to use directly as filenames.
     fn song_path(&self, song_id: &str) -> PathBuf {
         self.cache_dir.join(song_id)
-    }
-
-    /// Check whether audio for a given song is already cached.
-    #[allow(dead_code)]
-    pub fn is_cached(&self, song_id: &str) -> bool {
-        self.song_path(song_id).exists()
     }
 
     /// Read cached audio bytes for a song.
@@ -98,33 +86,4 @@ impl AudioCache {
         }
     }
 
-    /// Remove every cached audio file by destroying and recreating the cache directory.
-    #[allow(dead_code)]
-    pub fn clear(&self) -> Result<(), DomainError> {
-        if self.cache_dir.exists() {
-            std::fs::remove_dir_all(&self.cache_dir)
-                .map_err(|e| DomainError::Other(format!("Failed to clear cache: {e}")))?;
-            std::fs::create_dir_all(&self.cache_dir)
-                .map_err(|e| DomainError::Other(format!("Failed to recreate cache dir: {e}")))?;
-        }
-        Ok(())
-    }
-
-    /// Return the total size (in bytes) of all cached files.
-    #[allow(dead_code)]
-    pub async fn total_size(&self) -> Result<u64, DomainError> {
-        if !self.cache_dir.exists() {
-            return Ok(0);
-        }
-        let mut total = 0u64;
-        let mut read_dir = tokio::fs::read_dir(&self.cache_dir).await
-            .map_err(|e| DomainError::Other(format!("Failed to read cache dir: {e}")))?;
-        while let Some(entry) = read_dir.next_entry().await
-            .map_err(|e| DomainError::Other(format!("Failed to read cache entry: {e}")))? {
-            if entry.file_type().await.map(|t| t.is_file()).unwrap_or(false) {
-                total += entry.metadata().await.map(|m| m.len()).unwrap_or(0);
-            }
-        }
-        Ok(total)
-    }
 }
