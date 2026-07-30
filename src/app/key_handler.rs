@@ -36,22 +36,18 @@ impl App {
                     if let Some((version, url)) = self.ui.pending_upgrade.take() {
                         let event_tx = self.event_tx.clone();
                         tokio::spawn(async move {
-                            match crate::update::perform_upgrade(&version, &url) {
-                                Ok(()) => {
-                                    let _ = event_tx
-                                        .send(AppEvent::Notification(
-                                            "upgrade_complete".into(),
-                                        ))
-                                        .await;
-                                }
-                                Err(e) => {
-                                    let _ = event_tx
-                                        .send(AppEvent::Notification(
-                                            format!("upgrade_failed: {e}"),
-                                        ))
-                                        .await;
-                                }
-                            }
+                            // Run blocking IO (HTTP download + file write) on the
+                            // blocking thread pool so the async runtime stays responsive.
+                            let result = tokio::task::spawn_blocking(move || {
+                                crate::update::perform_upgrade(&version, &url)
+                            })
+                            .await;
+                            let msg = match result {
+                                Ok(Ok(())) => "upgrade_complete".into(),
+                                Ok(Err(e)) => format!("upgrade_failed: {e}"),
+                                Err(e) => format!("upgrade_failed: spawn error {e}"),
+                            };
+                            let _ = event_tx.send(AppEvent::Notification(msg)).await;
                         });
                     }
                     Ok(false)
@@ -63,6 +59,20 @@ impl App {
                 }
                 _ => Ok(false),
             };
+        }
+
+        // Block exit during upgrade — the binary is being replaced
+        if self.ui.is_upgrading {
+            let wants_exit = matches!(key.code, KeyCode::Char('q' | 'Q'))
+                || (matches!(key.code, KeyCode::Char('c'))
+                    && key.modifiers.contains(KeyModifiers::CONTROL));
+            if wants_exit {
+                self.ui.push_notification(
+                    self.ui.tr("upgrade_in_progress"),
+                    NotificationLevel::Warning,
+                );
+                return Ok(false);
+            }
         }
 
         // Universal keys — always work regardless of screen or focus

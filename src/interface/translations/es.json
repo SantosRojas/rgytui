@@ -105,5 +105,6 @@
   "upgrade_title": "Actualización Disponible",
   "upgrade_downloading": "Descargando actualización...",
   "upgrade_complete": "¡Actualización completa! Reiniciá rgytui para usar la nueva versión.",
-  "upgrade_failed": "Error al actualizar: {}"
+  "upgrade_failed": "Error al actualizar: {}",
+  "upgrade_in_progress": "Actualización en curso — esperá a que termine antes de salir."
 }

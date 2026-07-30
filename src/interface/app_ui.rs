@@ -27,12 +27,21 @@ pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, the
     let main_area = chunks[1];
     let status_area = chunks[2];
 
-    let title_text = Line::from(vec![
+    let mut title_spans = vec![
         Span::styled(" 🎵 rgytui ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
         Span::styled(state.tr("app_subtitle"), Style::default().fg(theme.text_muted)),
         Span::styled("  ◆  ", Style::default().fg(theme.separator)),
         Span::styled("Santos Rojas", Style::default().fg(theme.accent)),
-    ]);
+    ];
+    if state.is_upgrading {
+        title_spans.push(Span::styled(
+            "  ⟳ Upgrading...  ",
+            Style::default()
+                .fg(theme.warning)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+    let title_text = Line::from(title_spans);
     let title = Paragraph::new(title_text).style(Style::default().bg(theme.panel_bg));
     frame.render_widget(title, title_area);
 
