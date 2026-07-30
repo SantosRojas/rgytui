@@ -302,8 +302,9 @@ impl App {
                 let is_double = self.is_double_click(col, row);
 
                 // Upgrade popup check (modal — intercepts all clicks when visible)
-                if self.ui.show_upgrade_popup {
-                    if let Some(pr) = self.panel_rects.get("upgrade_popup") {
+                if self.ui.show_upgrade_popup
+                    && let Some(pr) = self.panel_rects.get("upgrade_popup")
+                {
                         let hit = row >= pr.y && row < pr.y + pr.height
                             && col >= pr.x && col < pr.x + pr.width;
                         if hit {
@@ -328,7 +329,6 @@ impl App {
                             return;
                         }
                     }
-                }
 
                 // Phase 1: resolve click target using rects (immutable borrow only)
                 enum HitTarget {

@@ -1,16 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum RepeatMode {
+    #[default]
     None,
     All,
     One,
-}
-
-impl Default for RepeatMode {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl RepeatMode {
@@ -266,8 +261,7 @@ mod tests {
 
     #[test]
     fn playlist_next_wraps_with_repeat_all() {
-        let mut p = Playlist::default();
-        p.repeat_mode = RepeatMode::All;
+        let mut p = Playlist { repeat_mode: RepeatMode::All, ..Default::default() };
         p.add(song("a"));
         p.add(song("b"));
         p.next();
@@ -302,8 +296,7 @@ mod tests {
 
     #[test]
     fn playlist_previous_wraps_with_repeat_all() {
-        let mut p = Playlist::default();
-        p.repeat_mode = RepeatMode::All;
+        let mut p = Playlist { repeat_mode: RepeatMode::All, ..Default::default() };
         p.add(song("a"));
         p.add(song("b"));
         p.previous(); // at 0, wraps to end

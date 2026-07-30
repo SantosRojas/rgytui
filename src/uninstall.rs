@@ -88,10 +88,10 @@ pub fn run_uninstall() -> Result<(), anyhow::Error> {
     }
 
     // Remove config data (after platform uninstall so the script file is gone first)
-    if remove_config {
-        if let Some(ref dir) = config_dir {
-            remove_config_dir(dir);
-        }
+    if remove_config
+        && let Some(ref dir) = config_dir
+    {
+        remove_config_dir(dir);
     }
 
     Ok(())

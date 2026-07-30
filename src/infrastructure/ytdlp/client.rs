@@ -183,6 +183,55 @@ impl YtDlpAdapter {
     }
 }
 
+#[async_trait::async_trait]
+impl MediaSearchPort for YtDlpAdapter {
+    async fn search(&self, query: &str, limit: usize) -> Result<Vec<Song>, DomainError> {
+        self.search(query, limit).await
+    }
+}
+
+#[async_trait::async_trait]
+impl DownloaderPort for YtDlpAdapter {
+    async fn get_stream_url(&self, url: &str, audio_only: bool) -> Result<String, DomainError> {
+        self.get_stream_url(url, audio_only).await
+    }
+
+    async fn download_audio_bytes(&self, url: &str) -> Result<Vec<u8>, DomainError> {
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            tokio::process::Command::new("yt-dlp")
+                .arg("-f")
+                .arg("bestaudio[ext=m4a]/bestaudio/best")
+                .arg("-o")
+                .arg("-")
+                .arg("--no-playlist")
+                .arg(url)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .output(),
+        )
+        .await
+            .map_err(|_| DomainError::YtDlp("Audio download timed out after 120s".into()))?
+            .map_err(|e| DomainError::YtDlp(format!("Failed to run yt-dlp: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(DomainError::YtDlp(format!("Audio download failed: {}", stderr)));
+        }
+
+        Ok(output.stdout)
+    }
+
+    async fn download(
+        &self,
+        url: &str,
+        output_dir: &str,
+        audio_format: &str,
+    ) -> Result<String, DomainError> {
+        self.download(url, output_dir, audio_format).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -240,54 +289,5 @@ mod tests {
             .expect("should execute");
 
         assert!(output.status.success(), "successful command should exit zero");
-    }
-}
-
-#[async_trait::async_trait]
-impl MediaSearchPort for YtDlpAdapter {
-    async fn search(&self, query: &str, limit: usize) -> Result<Vec<Song>, DomainError> {
-        self.search(query, limit).await
-    }
-}
-
-#[async_trait::async_trait]
-impl DownloaderPort for YtDlpAdapter {
-    async fn get_stream_url(&self, url: &str, audio_only: bool) -> Result<String, DomainError> {
-        self.get_stream_url(url, audio_only).await
-    }
-
-    async fn download_audio_bytes(&self, url: &str) -> Result<Vec<u8>, DomainError> {
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(120),
-            tokio::process::Command::new("yt-dlp")
-                .arg("-f")
-                .arg("bestaudio[ext=m4a]/bestaudio/best")
-                .arg("-o")
-                .arg("-")
-                .arg("--no-playlist")
-                .arg(url)
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .output(),
-        )
-        .await
-            .map_err(|_| DomainError::YtDlp("Audio download timed out after 120s".into()))?
-            .map_err(|e| DomainError::YtDlp(format!("Failed to run yt-dlp: {}", e)))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(DomainError::YtDlp(format!("Audio download failed: {}", stderr)));
-        }
-
-        Ok(output.stdout)
-    }
-
-    async fn download(
-        &self,
-        url: &str,
-        output_dir: &str,
-        audio_format: &str,
-    ) -> Result<String, DomainError> {
-        self.download(url, output_dir, audio_format).await
     }
 }

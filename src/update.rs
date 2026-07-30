@@ -24,10 +24,10 @@ pub fn check_latest() -> Result<Option<(String, String)>, anyhow::Error> {
     let release = fetch_latest_release()?;
 
     // Skip if already at latest version
-    if let Ok(current) = current_version() {
-        if current == release.tag_name {
-            return Ok(None);
-        }
+    if let Ok(current) = current_version()
+        && current == release.tag_name
+    {
+        return Ok(None);
     }
 
     // Find matching asset for this platform

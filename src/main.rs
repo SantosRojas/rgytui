@@ -28,9 +28,8 @@ use crate::interface::i18n::Translations;
 async fn main() -> Result<(), anyhow::Error> {
     // Handle subcommands before starting the TUI
     let args: Vec<String> = std::env::args().collect();
-    match args.get(1).map(|s| s.as_str()) {
-        Some("uninstall") => return crate::uninstall::run_uninstall(),
-        _ => {}
+    if let Some("uninstall") = args.get(1).map(|s| s.as_str()) {
+        return crate::uninstall::run_uninstall();
     }
     tracing_subscriber::fmt()
         .with_env_filter(
