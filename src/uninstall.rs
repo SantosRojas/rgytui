@@ -41,7 +41,7 @@ pub fn run_uninstall() -> Result<(), anyhow::Error> {
 
     // Ask about optional dependency removal (default no for both)
     let remove_ytdlp = if skip_prompt {
-        false
+        true  // --yes: remove everything
     } else {
         eprint!("Remove yt-dlp? (used by rgytui for downloads) [y/N] ");
         std::io::stderr().flush()?;
@@ -51,7 +51,7 @@ pub fn run_uninstall() -> Result<(), anyhow::Error> {
     };
 
     let remove_mpv = if skip_prompt {
-        false
+        true  // --yes: remove everything
     } else {
         eprint!("Remove mpv? (used by rgytui for video playback) [y/N] ");
         std::io::stderr().flush()?;
@@ -64,6 +64,20 @@ pub fn run_uninstall() -> Result<(), anyhow::Error> {
     let target_name = if cfg!(windows) { "rgytui.exe" } else { "rgytui" };
     let binary_path = bin_dir.join(target_name);
 
+    // Ask about config data removal (settings + playlists)
+    let config_dir = config_dir_path();
+    let remove_config = if skip_prompt {
+        true
+    } else if config_dir.is_some() {
+        eprint!("Remove configuration and playlists? [y/N] ");
+        std::io::stderr().flush()?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        input.trim().to_lowercase() == "y"
+    } else {
+        false
+    };
+
     #[cfg(windows)]
     {
         uninstall_windows(&home, &bin_dir, &repo_dir, &binary_path, remove_ytdlp, remove_mpv)?;
@@ -71,6 +85,13 @@ pub fn run_uninstall() -> Result<(), anyhow::Error> {
     #[cfg(not(windows))]
     {
         uninstall_unix(&home, &bin_dir, &repo_dir, &binary_path, remove_ytdlp, remove_mpv)?;
+    }
+
+    // Remove config data (after platform uninstall so the script file is gone first)
+    if remove_config {
+        if let Some(ref dir) = config_dir {
+            remove_config_dir(dir);
+        }
     }
 
     Ok(())
@@ -248,9 +269,20 @@ fn uninstall_unix(
         eprintln!("  ✓ Removed {repo_s}");
     }
 
+    // Remove empty bin directory (left after removing the binary)
+    if bin_dir.exists() {
+        // Only remove if empty (all files already deleted)
+        let bin_remaining: Vec<_> = std::fs::read_dir(bin_dir)
+            .unwrap_or_else(|_| panic!("Failed to read {}", bin_dir.display()))
+            .filter_map(|e| e.ok())
+            .collect();
+        if bin_remaining.is_empty() {
+            let _ = fs::remove_dir(bin_dir); // best-effort
+        }
+    }
+
     // Remove the home directory (should now be empty)
     if home.exists() {
-        // Only remove if it only contains the bin dir (or is empty)
         let remaining: Vec<_> = std::fs::read_dir(home)
             .unwrap_or_else(|_| panic!("Failed to read {}", home_s))
             .filter_map(|e| e.ok())
@@ -270,6 +302,24 @@ fn uninstall_unix(
     eprintln!("✓ rgytui uninstalled.");
     eprintln!("  If you added ~/.local/bin to your PATH manually, remove it there.");
     Ok(())
+}
+
+// ── Config directory discovery ────────────────────────────────────────────────
+
+/// Returns the config directory used by ConfigAdapter (settings + playlists).
+fn config_dir_path() -> Option<PathBuf> {
+    directories::ProjectDirs::from("com", "rgytui", "rgytui")
+        .map(|d| d.config_dir().to_path_buf())
+}
+
+/// Remove the config directory and print result.
+fn remove_config_dir(dir: &Path) {
+    let dir_s = dir.display();
+    match std::fs::remove_dir_all(dir) {
+        Ok(()) => eprintln!("  ✓ Removed config: {dir_s}"),
+        Err(_) if !dir.exists() => {} // already gone
+        Err(e) => eprintln!("  ⚠  Failed to remove config {dir_s}: {e}"),
+    }
 }
 
 // ── Install home discovery (same logic as update.rs) ─────────────────────────
