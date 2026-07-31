@@ -54,7 +54,14 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderS
             Span::styled(state.tr("settings_download_path"), Style::default().fg(theme.text)),
             Span::styled(
                 if state.config.download_path.len() > 40 {
-                    format!("...{}", &state.config.download_path[state.config.download_path.len().saturating_sub(37)..])
+                    let path = &state.config.download_path;
+                    let cutoff = path.len().saturating_sub(37);
+                    let start = path
+                        .char_indices()
+                        .find(|(i, _)| *i >= cutoff)
+                        .map(|(i, _)| i)
+                        .unwrap_or(path.len());
+                    format!("...{}", &path[start..])
                 } else {
                     state.config.download_path.clone()
                 },

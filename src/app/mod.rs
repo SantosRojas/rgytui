@@ -113,6 +113,15 @@ impl App {
         // Load persisted playlist from disk
         let saved_playlist = config.load_playlist().await;
         playlist.load(saved_playlist);
+        // Restore the persisted repeat-mode preference from settings so it
+        // survives even when playlist.json is missing or corrupt. Only apply
+        // non-default values: a missing/corrupt settings.json yields the
+        // default "None" and must not reset a valid playlist.json mode.
+        if let Ok(mode) = settings.repeat_mode.parse::<RepeatMode>()
+            && mode != RepeatMode::None
+        {
+            playlist.set_repeat_mode(mode);
+        }
         let last_saved_playlist_version = playlist.playlist().version;
 
         let mut ui = UiState {
