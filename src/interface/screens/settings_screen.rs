@@ -4,6 +4,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, BorderType, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
+use crate::domain::audio_mode::AudioMode;
+use crate::domain::media::RepeatMode;
 use crate::interface::state::{RenderSnapshot, UiState};
 use crate::interface::theme::Theme;
 
@@ -62,6 +64,27 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderS
         ListItem::new(Line::from(vec![
             Span::styled(state.tr("settings_language"), Style::default().fg(theme.text)),
             Span::styled(state.config.language.clone(), Style::default().fg(theme.accent)),
+        ])),
+        ListItem::new(Line::from(vec![
+            Span::styled(state.tr("settings_audio_mode"), Style::default().fg(theme.text)),
+            Span::styled(
+                match snapshot.audio_mode {
+                    AudioMode::Audio => state.tr("status_audio"),
+                    AudioMode::Video => state.tr("status_video"),
+                },
+                Style::default().fg(theme.accent),
+            ),
+        ])),
+        ListItem::new(Line::from(vec![
+            Span::styled(state.tr("settings_repeat"), Style::default().fg(theme.text)),
+            Span::styled(
+                match snapshot.repeat_mode {
+                    RepeatMode::None => state.tr("status_repeat_none"),
+                    RepeatMode::All => state.tr("status_repeat_all"),
+                    RepeatMode::One => state.tr("status_repeat_one"),
+                },
+                Style::default().fg(theme.accent),
+            ),
         ])),
     ];
 

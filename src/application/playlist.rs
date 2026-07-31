@@ -81,6 +81,11 @@ impl PlaylistUseCase {
         self.playlist.repeat_mode
     }
 
+    pub fn set_repeat_mode(&mut self, mode: RepeatMode) -> RepeatMode {
+        self.playlist.repeat_mode = mode;
+        self.playlist.repeat_mode
+    }
+
     /// Returns an `Arc<[Song]>` that is cached and only rebuilt when the playlist version changes.
     /// This avoids cloning the entire song Vec every render frame.
     pub fn songs_arc(&mut self) -> Arc<[Song]> {
@@ -90,5 +95,27 @@ impl PlaylistUseCase {
             self.last_version = v;
         }
         self.songs_arc.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_repeat_mode_applies_to_active_playlist() {
+        let mut pl = PlaylistUseCase::new();
+        assert_eq!(pl.repeat_mode(), RepeatMode::None);
+        let returned = pl.set_repeat_mode(RepeatMode::One);
+        assert_eq!(returned, RepeatMode::One);
+        assert_eq!(pl.repeat_mode(), RepeatMode::One);
+    }
+
+    #[test]
+    fn cycle_repeat_mode_cycles_none_all_one() {
+        let mut pl = PlaylistUseCase::new();
+        assert_eq!(pl.cycle_repeat_mode(), RepeatMode::All);
+        assert_eq!(pl.cycle_repeat_mode(), RepeatMode::One);
+        assert_eq!(pl.cycle_repeat_mode(), RepeatMode::None);
     }
 }

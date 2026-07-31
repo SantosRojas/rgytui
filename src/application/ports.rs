@@ -31,6 +31,13 @@ pub trait AudioPlaybackPort: Send {
     /// Toggle spectrum analysis on/off. When disabled, FFT computation is skipped
     /// to save CPU when the spectrum visualizer isn't visible.
     fn set_spectrum_enabled(&mut self, enabled: bool);
+
+    /// Periodic health check. Returns Err if the audio backend is unusable
+    /// (e.g. the device was lost) and has been reset; the caller should surface
+    /// the error and clear playback state. Default: healthy.
+    fn check_health(&mut self) -> Result<(), DomainError> {
+        Ok(())
+    }
 }
 
 /// Port for downloading audio from URLs.
@@ -218,6 +225,15 @@ mod tests {
         let spec = mock.get_spectrum();
         assert_eq!(spec.bands.len(), BANDS);
         assert_eq!(spec.peaks.len(), BANDS);
+    }
+
+    #[test]
+    fn audio_playback_port_default_check_health_is_healthy() {
+        let mut mock = MockAudioPlayback::new();
+        assert!(
+            mock.check_health().is_ok(),
+            "default check_health should report a healthy backend"
+        );
     }
 
     // ── Mock: DownloaderPort ──

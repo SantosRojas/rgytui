@@ -13,6 +13,26 @@ use crate::domain::player_state::PlayerState;
 use crate::infrastructure::audio::spectrum::{SpectrumFrame, SpectrumSource};
 use crate::shared::sync::lock_or_warn;
 
+/// Max time to wait for the audio thread to drain the queue after `stop()`.
+/// This is the freeze fix: rodio 0.22's `Player::append()` blocks indefinitely
+/// on an internal `sleep_until_end()` channel when the queue still holds a
+/// never-ending source (e.g. while paused) and the audio thread is dead. We
+/// replace that unbounded wait with our own bounded one, so the main thread can
+/// never block forever.
+const FLUSH_DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
+/// Poll cadence while waiting for the queue to drain after `stop()`.
+const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(10);
+/// Position frozen this long while state is Playing = the backend is dead or
+/// stalled (e.g. the cpal/WASAPI device died or suspended after a long pause).
+const STALL_TIMEOUT: Duration = Duration::from_secs(3);
+/// Minimum interval between health checks, so the 50ms UI poll loop doesn't
+/// hammer the backend with lock acquisitions.
+const HEALTH_CHECK_INTERVAL: Duration = Duration::from_millis(500);
+/// Retained-bytes cap for transparent device-loss recovery. Typical songs are
+/// 2-8 MB; holding one song bounded by this cap is cheap. Larger files (rare)
+/// fall back to the error path on device loss.
+const MAX_RETAINED_BYTES: usize = 32 * 1024 * 1024;
+
 /// Shared state fields wrapped in a single Mutex to reduce lock overhead.
 /// `spectrum` lives separately because `SpectrumSource` holds a reference to it.
 struct SharedState {
@@ -27,6 +47,17 @@ pub struct RodioAdapter {
     shared: Arc<Mutex<SharedState>>,
     spectrum: Arc<Mutex<SpectrumFrame>>,
     spectrum_enabled: Arc<AtomicBool>,
+    /// Timestamp of the last `check_health` call (rate limiting).
+    last_health_check: Option<std::time::Instant>,
+    /// Last observed playback position, used to detect a stalled backend.
+    last_pos: f64,
+    /// When the position last moved. `None` = never moved since the last
+    /// play/pause cycle started.
+    last_pos_moved: Option<std::time::Instant>,
+    /// Audio bytes of the currently playing song, retained so playback can be
+    /// rebuilt transparently if the audio device is lost mid-play/pause.
+    /// Dropped on stop(); bounded by MAX_RETAINED_BYTES.
+    retained_bytes: Option<Vec<u8>>,
 }
 
 impl RodioAdapter {
@@ -46,6 +77,10 @@ impl RodioAdapter {
             })),
             spectrum: Arc::new(Mutex::new(SpectrumFrame::default())),
             spectrum_enabled: Arc::new(AtomicBool::new(true)),
+            last_health_check: None,
+            last_pos: 0.0,
+            last_pos_moved: None,
+            retained_bytes: None,
         })
     }
 
@@ -53,8 +88,114 @@ impl RodioAdapter {
         lock_or_warn(&self.shared, "rodio_shared")
     }
 
+    /// Pure predicate for the retained-bytes cap: keep a song's bytes only if they
+    /// fit within MAX_RETAINED_BYTES, so device-loss recovery stays memory-light.
+    fn should_retain(data_len: usize) -> bool {
+        data_len <= MAX_RETAINED_BYTES
+    }
+
+    /// Start playing `source` through the rodio player.
+    ///
+    /// This is the single choke point for starting playback and replaces the
+    /// previous `player.stop(); player.append(source);` sequence. rodio's
+    /// `append()` blocks forever on `sleep_until_end()` when a previously
+    /// appended source never ended (a paused Pausable emits 0.0 forever) and
+    /// the audio thread is dead — exactly the "freeze after long pause" bug.
+    /// We bound the drain wait ourselves and, if the queue does not empty, we
+    /// rebuild the backend so the fresh player (empty queue, stopped=false)
+    /// makes `append()` non-blocking.
+    fn play_source<S>(&mut self, source: S) -> Result<(), DomainError>
+    where
+        S: rodio::Source<Item = f32> + Send + 'static,
+    {
+        // Start the watchdog tracking from scratch for this play cycle.
+        self.last_pos = 0.0;
+        self.last_pos_moved = None;
+        self.last_health_check = None;
+
+        self.player.stop();
+
+        if !self.wait_drained(FLUSH_DRAIN_TIMEOUT) {
+            // The queue is not draining: the audio thread is dead or stalled
+            // (e.g. the cpal/WASAPI device died during a long pause). Reopen
+            // the backend to get a fresh player; append() below is then
+            // guaranteed non-blocking because sound_count == 0.
+            tracing::warn!(
+                "Audio queue did not drain within {:?}; reopening audio backend",
+                FLUSH_DRAIN_TIMEOUT
+            );
+            self.reopen_backend()?;
+        }
+
+        self.player.append(source);
+        Ok(())
+    }
+
+    /// Rebuild playback from retained bytes after `reopen_backend()`, resuming at
+    /// `seek_to` seconds. Best-effort: if seeking is not supported by the codec we
+    /// restart the song from 0 (logged) rather than fail. On success the adapter is
+    /// left in Playing state with fresh watchdog tracking.
+    fn rebuild_after_reopen(&mut self, data: &[u8], seek_to: f64) -> Result<(), DomainError> {
+        // Owned Vec required for a 'static source; one copy on a rare recovery event.
+        let mut decoder = Decoder::new(std::io::Cursor::new(data.to_vec()))
+            .map_err(|e| DomainError::Audio(format!("Decode error: {}", e)))?;
+
+        if seek_to > 0.0
+            && let Err(e) = decoder.try_seek(Duration::from_secs_f64(seek_to))
+        {
+            tracing::warn!(
+                "Seek after device-loss recovery failed ({}); restarting song from the beginning",
+                e
+            );
+        }
+
+        let (source, new_spectrum) = SpectrumSource::new(decoder, self.spectrum_enabled.clone());
+        self.spectrum = new_spectrum;
+
+        // Fresh player from reopen_backend(): queue empty, so no drain wait. This
+        // also resets the watchdog tracking for the new play cycle.
+        self.play_source(source)?;
+
+        let mut s = self.shared_mut();
+        self.player.set_volume(s.volume);
+        s.state = PlayerState::Playing;
+
+        Ok(())
+    }
+
+    /// Poll `Player::len()` until the queue is empty or the deadline passes.
+    /// This replaces rodio's unbounded internal wait inside `append()` — the
+    /// main loop may pause here for at most `timeout`, NEVER forever.
+    fn wait_drained(&self, timeout: Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        while self.player.len() > 0 {
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(DRAIN_POLL_INTERVAL);
+        }
+        true
+    }
+
+    /// Rebuild the device handle and player after the backend was detected as
+    /// dead/stalled. The `Arc` fields (`shared`, `spectrum`, `spectrum_enabled`)
+    /// are untouched, so volume and the spectrum flag survive a reopen.
+    fn reopen_backend(&mut self) -> Result<(), DomainError> {
+        let mut handle = DeviceSinkBuilder::open_default_sink()
+            .map_err(|e| DomainError::Audio(format!("Cannot open audio output: {}", e)))?;
+        handle.log_on_drop(false);
+        let player = Player::connect_new(handle.mixer());
+        self._handle = handle;
+        self.player = player;
+        Ok(())
+    }
+
     #[allow(dead_code)]
     pub fn play_file(&mut self, path: &Path, _song: Song) -> Result<(), DomainError> {
+        // File-path playback is unused dead code and streams straight from disk,
+        // so there are no in-memory bytes to retain for device-loss recovery.
+        self.retained_bytes = None;
+
         let file = std::fs::File::open(path)?;
         let decoder =
             Decoder::new(file).map_err(|e| DomainError::Audio(format!("Decode error: {}", e)))?;
@@ -67,8 +208,7 @@ impl RodioAdapter {
         let (source, new_spectrum) = SpectrumSource::new(decoder, self.spectrum_enabled.clone());
         self.spectrum = new_spectrum;
 
-        self.player.stop();
-        self.player.append(source);
+        self.play_source(source)?;
 
         let mut s = self.shared_mut();
         self.player.set_volume(s.volume);
@@ -80,9 +220,15 @@ impl RodioAdapter {
 
     /// Play audio from in-memory bytes (used when download completes in background).
     pub fn play_bytes(&mut self, data: Vec<u8>, _song: Song) -> Result<(), DomainError> {
+        // Retain a copy only when the song fits the cap AND decodes successfully,
+        // so a device-loss event later can rebuild playback transparently. We clone
+        // once here (kept as retained_bytes), never a second time for the decoder.
+        let should_retain = Self::should_retain(data.len());
+        let retained = should_retain.then(|| data.clone());
         let cursor = std::io::Cursor::new(data);
         let decoder =
             Decoder::new(cursor).map_err(|e| DomainError::Audio(format!("Decode error: {}", e)))?;
+        self.retained_bytes = retained;
 
         let total_duration = decoder
             .total_duration()
@@ -92,8 +238,7 @@ impl RodioAdapter {
         let (source, new_spectrum) = SpectrumSource::new(decoder, self.spectrum_enabled.clone());
         self.spectrum = new_spectrum;
 
-        self.player.stop();
-        self.player.append(source);
+        self.play_source(source)?;
 
         let mut s = self.shared_mut();
         self.player.set_volume(s.volume);
@@ -116,12 +261,22 @@ impl RodioAdapter {
     pub fn resume(&mut self) -> Result<(), DomainError> {
         self.player.play();
         self.shared_mut().state = PlayerState::Playing;
+        // Start the watchdog tracking from scratch for this play cycle.
+        self.last_pos = 0.0;
+        self.last_pos_moved = None;
+        self.last_health_check = None;
         Ok(())
     }
 
     pub fn stop(&mut self) -> Result<(), DomainError> {
         self.player.stop();
         self.shared_mut().state = PlayerState::Stopped;
+        // Playback ended/cleared: nothing left to recover, so release the bytes.
+        self.retained_bytes = None;
+        // Stop tracking a stall: a fresh play cycle starts from zero.
+        self.last_pos = 0.0;
+        self.last_pos_moved = None;
+        self.last_health_check = None;
         Ok(())
     }
 
@@ -208,6 +363,77 @@ impl AudioPlaybackPort for RodioAdapter {
     fn set_spectrum_enabled(&mut self, enabled: bool) {
         self.set_spectrum_enabled(enabled);
     }
+
+    /// Watchdog: detect a dead/stalled audio backend (e.g. the WASAPI/cpal
+    /// device dying after a long pause) and recover by reopening the backend.
+    /// Called periodically from the UI poll loop; rate-limited internally.
+    fn check_health(&mut self) -> Result<(), DomainError> {
+        let now = std::time::Instant::now();
+        if let Some(last) = self.last_health_check
+            && now.duration_since(last) < HEALTH_CHECK_INTERVAL
+        {
+            return Ok(());
+        }
+        self.last_health_check = Some(now);
+
+        // Only watchdog actual playback. While paused the position is frozen
+        // by design, and when the sink is empty the song ended naturally
+        // (auto-advance handles it).
+        if self.shared_mut().state != PlayerState::Playing || self.player.empty() {
+            return Ok(());
+        }
+
+        let pos = self.player.get_pos().as_secs_f64();
+        if (pos - self.last_pos).abs() > 1e-9 {
+            self.last_pos = pos;
+            self.last_pos_moved = Some(now);
+            return Ok(());
+        }
+
+        let moved_at = match self.last_pos_moved {
+            Some(t) => t,
+            None => {
+                // Position has not moved yet since playback started — seed the
+                // watchdog so we start counting from the first check.
+                self.last_pos_moved = Some(now);
+                return Ok(());
+            }
+        };
+
+        if now.duration_since(moved_at) < STALL_TIMEOUT {
+            return Ok(());
+        }
+
+        // Position frozen while Playing for longer than STALL_TIMEOUT: the
+        // backend is dead. Try to recover transparently from the retained bytes.
+        tracing::warn!(
+            "Audio position frozen for {:?} while playing; backend presumed dead, recovering",
+            STALL_TIMEOUT
+        );
+        self.reopen_backend()?;
+        let seek_to = self.last_pos; // capture BEFORE play_source resets tracking
+        // Take the bytes out so rebuild_after_reopen can borrow self mutably, then
+        // put them back on success so a later device loss can also recover.
+        let retained = self.retained_bytes.take();
+        if let Some(data) = retained {
+            match self.rebuild_after_reopen(&data, seek_to) {
+                Ok(()) => {
+                    self.retained_bytes = Some(data);
+                    // Transparent recovery: playback resumed at seek_to. No error surfaced.
+                    return Ok(());
+                }
+                Err(_) => {
+                    // Rebuild failed; fall through to stop and report below.
+                }
+            }
+        }
+        // No retained bytes or rebuild failed: stop and report so the app clears the song.
+        self.shared_mut().state = PlayerState::Stopped;
+        self.last_pos = 0.0;
+        self.last_pos_moved = None;
+        self.last_health_check = None;
+        Err(DomainError::Audio("Audio device lost. Playback stopped.".into()))
+    }
 }
 
 /// A no-op audio backend used when the system has no audio output available.
@@ -232,4 +458,16 @@ impl AudioPlaybackPort for NoopAudioAdapter {
     fn is_sink_empty(&self) -> bool { true }
     fn get_spectrum(&self) -> SpectrumFrame { SpectrumFrame::default() }
     fn set_spectrum_enabled(&mut self, _enabled: bool) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RodioAdapter;
+
+    #[test]
+    fn should_retain_respects_cap() {
+        assert!(RodioAdapter::should_retain(0));
+        assert!(RodioAdapter::should_retain(super::MAX_RETAINED_BYTES));
+        assert!(!RodioAdapter::should_retain(super::MAX_RETAINED_BYTES + 1));
+    }
 }

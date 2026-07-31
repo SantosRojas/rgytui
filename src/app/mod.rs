@@ -253,7 +253,7 @@ impl App {
                     false
                 }
                 _ = tokio::time::sleep(Duration::from_millis(50)) => {
-                    self.update_progress();
+                    self.update_progress().await;
                     self.ui.tick_spinner();
                     false
                 }
@@ -648,7 +648,7 @@ mod tests {
         }
 
         // Call update_progress — with guard, this should be a no-op
-        app.update_progress();
+        app.update_progress().await;
 
         // Guard should prevent auto-advance: no pending play
         assert!(app.pending_play.is_none(), "no auto-advance when no song loaded");

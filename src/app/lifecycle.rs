@@ -48,6 +48,8 @@ impl App {
         self.settings.default_search_limit = self.ui.config.default_search_limit;
         self.settings.download_path = self.ui.config.download_path.clone();
         self.settings.language = self.ui.config.language.clone();
+        self.settings.audio_mode = matches!(self.playback.mode(), AudioMode::Video);
+        self.settings.repeat_mode = self.playlist.repeat_mode().as_str().to_string();
         if let Err(e) = self.config.save_settings(&self.settings).await {
             tracing::warn!("Failed to save settings: {}", e);
         }

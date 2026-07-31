@@ -105,10 +105,154 @@ impl PlaybackUseCase {
     pub fn set_spectrum_enabled(&mut self, enabled: bool) {
         self.audio.set_spectrum_enabled(enabled);
     }
+
+    /// Periodic health check passthrough. Returns Err if the audio backend was
+    /// reset because the device was lost; the caller surfaces the error and
+    /// clears playback state.
+    pub fn check_health(&mut self) -> Result<(), DomainError> {
+        self.audio.check_health()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+
+    use super::*;
+
+    /// Minimal downloader mock so `PlaybackUseCase` can be built in tests.
+    struct MockDownloader;
+
+    #[async_trait]
+    impl DownloaderPort for MockDownloader {
+        async fn get_stream_url(&self, _url: &str, _audio_only: bool) -> Result<String, DomainError> {
+            Ok(String::new())
+        }
+        async fn download_audio_bytes(&self, _url: &str) -> Result<Vec<u8>, DomainError> {
+            Ok(Vec::new())
+        }
+        async fn download(
+            &self,
+            _url: &str,
+            _output_dir: &str,
+            _audio_format: &str,
+        ) -> Result<String, DomainError> {
+            Ok(String::new())
+        }
+    }
+
+    /// Audio mock whose `check_health` reports a healthy backend.
+    struct HealthyMockAudio;
+
+    impl AudioPlaybackPort for HealthyMockAudio {
+        fn play_file(&mut self, _path: &Path, _song: Song) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn play_bytes(&mut self, _data: Vec<u8>, _song: Song) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn pause(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn resume(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn stop(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn set_volume(&mut self, _vol: f32) {}
+        fn volume(&self) -> f32 {
+            0.8
+        }
+        fn state(&self) -> PlayerState {
+            PlayerState::Stopped
+        }
+        fn current_position(&self) -> f64 {
+            0.0
+        }
+        fn current_duration(&self) -> f64 {
+            0.0
+        }
+        fn is_sink_empty(&self) -> bool {
+            true
+        }
+        fn get_spectrum(&self) -> SpectrumFrame {
+            SpectrumFrame::default()
+        }
+        fn set_spectrum_enabled(&mut self, _enabled: bool) {}
+    }
+
+    /// Audio mock whose `check_health` reports a lost device.
+    struct DeadMockAudio;
+
+    impl AudioPlaybackPort for DeadMockAudio {
+        fn play_file(&mut self, _path: &Path, _song: Song) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn play_bytes(&mut self, _data: Vec<u8>, _song: Song) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn pause(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn resume(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn stop(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn set_volume(&mut self, _vol: f32) {}
+        fn volume(&self) -> f32 {
+            0.8
+        }
+        fn state(&self) -> PlayerState {
+            PlayerState::Stopped
+        }
+        fn current_position(&self) -> f64 {
+            0.0
+        }
+        fn current_duration(&self) -> f64 {
+            0.0
+        }
+        fn is_sink_empty(&self) -> bool {
+            true
+        }
+        fn get_spectrum(&self) -> SpectrumFrame {
+            SpectrumFrame::default()
+        }
+        fn set_spectrum_enabled(&mut self, _enabled: bool) {}
+        fn check_health(&mut self) -> Result<(), DomainError> {
+            Err(DomainError::Audio("Audio device lost. Playback stopped.".into()))
+        }
+    }
+
+    fn build_playback(audio: Box<dyn AudioPlaybackPort>) -> PlaybackUseCase {
+        PlaybackUseCase::new(Arc::new(MockDownloader), audio, MpvAdapter::new(), AudioMode::Audio)
+    }
+
+    #[test]
+    fn check_health_propagates_ok_from_backend() {
+        let mut playback = build_playback(Box::new(HealthyMockAudio));
+        assert!(
+            playback.check_health().is_ok(),
+            "check_health should propagate a healthy backend as Ok"
+        );
+    }
+
+    #[test]
+    fn check_health_propagates_error_from_backend() {
+        let mut playback = build_playback(Box::new(DeadMockAudio));
+        let err = playback.check_health().unwrap_err();
+        assert!(
+            matches!(err, DomainError::Audio(_)),
+            "check_health should propagate the backend error, got {:?}",
+            err
+        );
+    }
+
     use tempfile::TempDir;
 
     #[tokio::test]

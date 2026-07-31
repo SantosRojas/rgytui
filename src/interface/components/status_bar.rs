@@ -92,11 +92,10 @@ impl Widget for StatusBar {
             AudioMode::Video => Span::styled(t("status_video"), Style::default().fg(Color::Rgb(200, 120, 255))),
         };
 
-        let repeat_label = match self.repeat_mode {
-            RepeatMode::None => Span::styled("  ", Style::default()),
-            RepeatMode::All => Span::styled(t("status_repeat_all"), Style::default().fg(th.accent)),
-            RepeatMode::One => Span::styled(t("status_repeat_one"), Style::default().fg(th.accent)),
-        };
+        let repeat_span = Span::styled(
+            repeat_label(self.translations.as_ref(), self.repeat_mode),
+            Style::default().fg(th.accent),
+        );
 
         let vol = (self.volume * 100.0) as u8;
         let vol_icon = if vol > 50 {
@@ -113,7 +112,7 @@ impl Widget for StatusBar {
             sep.clone(),
             mode_label,
             sep.clone(),
-            repeat_label,
+            repeat_span,
             sep.clone(),
             Span::styled(
                 format!("{} {:3}%", vol_icon, vol),
@@ -142,5 +141,33 @@ impl Widget for StatusBar {
 
         let paragraph = Paragraph::new(line).block(block);
         paragraph.render(area, buf);
+    }
+}
+
+/// Resolve the translated status-bar label for a repeat mode.
+fn repeat_label(tr: &dyn I18nPort, mode: RepeatMode) -> String {
+    match mode {
+        RepeatMode::None => tr.t("status_repeat_none"),
+        RepeatMode::All => tr.t("status_repeat_all"),
+        RepeatMode::One => tr.t("status_repeat_one"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::interface::i18n::Translations;
+
+    #[test]
+    fn repeat_label_maps_every_mode_to_translation() {
+        let en = Translations::load("en");
+        assert_eq!(repeat_label(&en, RepeatMode::None), "🔁 None");
+        assert_eq!(repeat_label(&en, RepeatMode::All), "🔁 All");
+        assert_eq!(repeat_label(&en, RepeatMode::One), "🔂 One");
+
+        let es = Translations::load("es");
+        assert_eq!(repeat_label(&es, RepeatMode::None), "🔁 Ninguno");
+        assert_eq!(repeat_label(&es, RepeatMode::All), "🔁 Todo");
+        assert_eq!(repeat_label(&es, RepeatMode::One), "🔂 Una");
     }
 }

@@ -16,6 +16,29 @@ impl RepeatMode {
             Self::One => Self::None,
         }
     }
+
+    /// Persisted string representation, kept in sync with the serde
+    /// discriminant names ("None", "All", "One").
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::All => "All",
+            Self::One => "One",
+        }
+    }
+}
+
+impl std::str::FromStr for RepeatMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "None" => Ok(Self::None),
+            "All" => Ok(Self::All),
+            "One" => Ok(Self::One),
+            _ => Err(()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -449,5 +472,28 @@ mod tests {
         assert_eq!(RepeatMode::None.next(), RepeatMode::All);
         assert_eq!(RepeatMode::All.next(), RepeatMode::One);
         assert_eq!(RepeatMode::One.next(), RepeatMode::None);
+    }
+
+    #[test]
+    fn repeat_mode_as_str_matches_serde_serialization() {
+        for m in [RepeatMode::None, RepeatMode::All, RepeatMode::One] {
+            let ser = serde_json::to_string(&m).unwrap();
+            let expected = serde_json::to_string(m.as_str()).unwrap();
+            assert_eq!(ser, expected, "as_str must match serde discriminant for {m:?}");
+        }
+    }
+
+    #[test]
+    fn repeat_mode_from_str_round_trips() {
+        for m in [RepeatMode::None, RepeatMode::All, RepeatMode::One] {
+            let parsed: RepeatMode = m.as_str().parse().unwrap();
+            assert_eq!(parsed, m);
+        }
+    }
+
+    #[test]
+    fn repeat_mode_from_str_unknown_errors() {
+        assert!("Repeat".parse::<RepeatMode>().is_err());
+        assert!("".parse::<RepeatMode>().is_err());
     }
 }

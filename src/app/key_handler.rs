@@ -217,7 +217,7 @@ impl App {
                 self.ui.settings.settings_focus = self.ui.settings.settings_focus.saturating_sub(1);
             }
             KeyCode::Down => {
-                self.ui.settings.settings_focus = (self.ui.settings.settings_focus + 1).min(5);
+                self.ui.settings.settings_focus = (self.ui.settings.settings_focus + 1).min(7);
             }
             KeyCode::Enter | KeyCode::Char(' ') => match self.ui.settings.settings_focus {
                 0 => {
@@ -282,6 +282,38 @@ impl App {
                         "es".into()
                     };
                     self.ui.config.translations = Arc::new(Translations::load(&self.ui.config.language));
+                }
+                6 => {
+                    // Mirror the player-screen 'v' key: toggle mode via
+                    // PlaybackUseCase (which validates mpv presence for video).
+                    if let Err(e) = self.playback.toggle_mode().await {
+                        self.ui.push_notification(
+                            self.ui.tr("err_playback").replace("{}", &e.to_string()),
+                            NotificationLevel::Error,
+                        );
+                    } else {
+                        let mode = self.playback.mode();
+                        self.settings.audio_mode = matches!(mode, AudioMode::Video);
+                        let label = match mode {
+                            AudioMode::Audio => self.ui.tr("status_audio"),
+                            AudioMode::Video => self.ui.tr("status_video"),
+                        };
+                        self.ui.push_notification(
+                            self.ui.tr("notif_mode").replace("{}", &label),
+                            NotificationLevel::Info,
+                        );
+                    }
+                }
+                7 => {
+                    let next = self.playlist.repeat_mode().next();
+                    let mode = self.playlist.set_repeat_mode(next);
+                    self.settings.repeat_mode = mode.as_str().to_string();
+                    let key = match mode {
+                        RepeatMode::None => "notif_repeat_off",
+                        RepeatMode::All => "notif_repeat_all",
+                        RepeatMode::One => "notif_repeat_one",
+                    };
+                    self.ui.push_notification(self.ui.tr(key), NotificationLevel::Info);
                 }
                 _ => {}
             },
