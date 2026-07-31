@@ -80,12 +80,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
 
       - name: Generate SHA256 checksums
         working-directory: artifacts
         run: |
-          shopt -s globstar
-          sha256sum **/*.tar.gz **/*.zip > checksums.txt
+          sha256sum *.tar.gz *.zip > checksums.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
