@@ -19,14 +19,30 @@ impl App {
             return;
         }
 
-        // Output device switched (e.g. Jack <-> Bluetooth): the backend paused
-        // playback on the live sink; surface a notification and wait for the user
-        // to resume explicitly (no auto-advance while paused).
-        if self.playback.take_route_change_notification() {
-            self.ui.push_notification(
-                self.ui.tr("notif_device_changed"),
-                NotificationLevel::Info,
-            );
+        // Output device switched (e.g. Jack <-> Bluetooth): the backend already
+        // handled the route change (paused on the live sink, or stopped because
+        // the song cannot be rebuilt). Surface a notification that matches what
+        // actually happened and never auto-resume — the user always acts
+        // explicitly.
+        if let Some(notice) = self.playback.take_route_change_notice() {
+            match notice {
+                RouteChangeNotice::ResumeAvailable => {
+                    self.ui.push_notification(
+                        self.ui.tr("notif_device_changed"),
+                        NotificationLevel::Info,
+                    );
+                }
+                RouteChangeNotice::RestartRequired => {
+                    // Source not retained: cannot rebuild, so the track stopped.
+                    // Clear the now-playing slot so the user can re-play the song
+                    // explicitly (guard_already_playing would otherwise block it).
+                    self.ui.player.current_song = None;
+                    self.ui.push_notification(
+                        self.ui.tr("notif_device_changed_stopped"),
+                        NotificationLevel::Info,
+                    );
+                }
+            }
             return;
         }
 

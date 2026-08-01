@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::application::ports::{AudioPlaybackPort, DownloaderPort};
+use crate::application::ports::{AudioPlaybackPort, DownloaderPort, RouteChangeNotice};
 use crate::domain::audio_mode::AudioMode;
 use crate::domain::error::DomainError;
 use crate::domain::media::Song;
@@ -119,8 +119,8 @@ impl PlaybackUseCase {
         self.audio.check_health()
     }
 
-    pub fn take_route_change_notification(&mut self) -> bool {
-        self.audio.take_route_change_notification()
+    pub fn take_route_change_notice(&mut self) -> Option<RouteChangeNotice> {
+        self.audio.take_route_change_notice()
     }
 }
 
@@ -240,16 +240,22 @@ mod tests {
     }
 
     /// Audio mock whose backend reports a route change: `check_health` is
-    /// healthy (the pause happened internally) and `take_route_change_notification`
-    /// yields true exactly once (the flag is consumed by the first call, like the
-    /// real backend).
+    /// healthy (the pause happened internally) and `take_route_change_notice`
+    /// yields a notice exactly once (consumed by the first call, like the real
+    /// backend).
     struct RouteChangeMockAudio {
-        notified: bool,
+        notice: Option<RouteChangeNotice>,
     }
 
     impl RouteChangeMockAudio {
         fn new() -> Self {
-            Self { notified: true }
+            Self {
+                notice: Some(RouteChangeNotice::ResumeAvailable),
+            }
+        }
+
+        fn new_with(notice: RouteChangeNotice) -> Self {
+            Self { notice: Some(notice) }
         }
     }
 
@@ -292,8 +298,8 @@ mod tests {
         fn check_health(&mut self) -> Result<(), DomainError> {
             Ok(())
         }
-        fn take_route_change_notification(&mut self) -> bool {
-            std::mem::take(&mut self.notified)
+        fn take_route_change_notice(&mut self) -> Option<RouteChangeNotice> {
+            self.notice.take()
         }
     }
 
@@ -322,15 +328,34 @@ mod tests {
     }
 
     #[test]
-    fn take_route_change_notification_returns_true_once() {
+    fn take_route_change_notice_returns_once() {
         let mut playback = build_playback(Box::new(RouteChangeMockAudio::new()));
-        assert!(
-            playback.take_route_change_notification(),
-            "a pending route change should trigger the notification flag"
+        assert_eq!(
+            playback.take_route_change_notice(),
+            Some(RouteChangeNotice::ResumeAvailable),
+            "a pending route change should surface the resume-available notice"
         );
-        assert!(
-            !playback.take_route_change_notification(),
-            "the notification flag is consumed on the first call"
+        assert_eq!(
+            playback.take_route_change_notice(),
+            None,
+            "the notice is consumed on the first call"
+        );
+    }
+
+    #[test]
+    fn take_route_change_notice_reports_restart_required() {
+        let mut playback = build_playback(Box::new(RouteChangeMockAudio::new_with(
+            RouteChangeNotice::RestartRequired,
+        )));
+        assert_eq!(
+            playback.take_route_change_notice(),
+            Some(RouteChangeNotice::RestartRequired),
+            "a route change without retained bytes should require an explicit restart"
+        );
+        assert_eq!(
+            playback.take_route_change_notice(),
+            None,
+            "the restart-required notice is consumed on the first call"
         );
     }
 

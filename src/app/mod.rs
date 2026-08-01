@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::application::playback::PlaybackUseCase;
 use crate::application::playlist::PlaylistUseCase;
-pub(crate) use crate::application::ports::{ConfigPort, I18nPort};
+pub(crate) use crate::application::ports::{ConfigPort, I18nPort, RouteChangeNotice};
 use crate::application::search::SearchUseCase;
 pub(crate) use crate::domain::audio_mode::AudioMode;
 pub(crate) use crate::domain::media::RepeatMode;

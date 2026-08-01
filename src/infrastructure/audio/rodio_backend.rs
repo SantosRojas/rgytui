@@ -6,7 +6,7 @@ use std::time::Duration;
 use rodio::cpal::traits::{DeviceTrait, HostTrait};
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
 
-use crate::application::ports::AudioPlaybackPort;
+use crate::application::ports::{AudioPlaybackPort, RouteChangeNotice};
 use crate::domain::error::DomainError;
 use crate::domain::media::Song;
 use crate::domain::player_state::PlayerState;
@@ -71,11 +71,11 @@ pub struct RodioAdapter {
     /// `pause_for_route_change`; consumed only by `resume()` (rebuild from
     /// retained bytes).
     pending_route_change: Option<f64>,
-    /// One-shot flag: a route change just paused playback and the app must
-    /// surface a notification. Set by `pause_for_route_change`; consumed by
-    /// the app via `take_route_change_notification`. Independent from
-    /// `pending_route_change`, which only `resume()` consumes.
-    route_change_notified: bool,
+    /// One-shot notice describing WHY a route change paused/stopped playback
+    /// (recoverable vs restart-required), surfaced to the app exactly once via
+    /// `take_route_change_notice`. Set by `pause_for_route_change`; independent
+    /// from `pending_route_change`, which only `resume()` consumes.
+    route_change_notice: Option<RouteChangeNotice>,
     /// Audio bytes of the currently playing song, retained so playback can be
     /// rebuilt transparently if the audio device is lost mid-play/pause.
     /// Dropped on stop(); bounded by MAX_RETAINED_BYTES.
@@ -109,7 +109,7 @@ impl RodioAdapter {
             sink_device_id: device_id,
             last_device_check: None,
             pending_route_change: None,
-            route_change_notified: false,
+            route_change_notice: None,
             retained_bytes: None,
         })
     }
@@ -190,7 +190,7 @@ impl RodioAdapter {
         // A fresh play cycle supersedes any pending route-change resume; the
         // user explicitly asked for a new source, so there is nothing to pause-for.
         self.pending_route_change = None;
-        self.route_change_notified = false;
+        self.route_change_notice = None;
 
         self.player.stop();
 
@@ -398,7 +398,7 @@ impl RodioAdapter {
         self.retained_bytes = None;
         // A stop supersedes any pending route-change resume.
         self.pending_route_change = None;
-        self.route_change_notified = false;
+        self.route_change_notice = None;
         // Stop tracking a stall: a fresh play cycle starts from zero.
         self.last_pos = 0.0;
         self.last_pos_moved = None;
@@ -438,10 +438,14 @@ impl RodioAdapter {
 
     /// Route change (Jack <-> Bluetooth): switch the sink to the live default
     /// device but DO NOT auto-resume — a fortuitous Bluetooth disconnect must
-    /// never spill sound through the laptop speakers. Playback is left Paused
-    /// with `pending_route_change` set so the app can surface a notification
-    /// and the user resumes explicitly. Returns Ok after the reopen; on reopen
-    /// failure the state is reset and the error propagates (unrecoverable).
+    /// never spill sound through the laptop speakers. When the song's bytes are
+    /// retained, playback is left Paused with `pending_route_change` set so the
+    /// user can resume explicitly from where it left off. Without retained
+    /// bytes (song > cap or file playback) the track cannot be rebuilt, so
+    /// playback is Stopped with NO resume promise and the app must ask the user
+    /// to play the song again. The notice always surfaces to the app so the UI
+    /// message matches what actually happened. Returns Ok after the reopen; on
+    /// reopen failure the state is reset and the error propagates (unrecoverable).
     fn pause_for_route_change(&mut self, seek_to: f64) -> Result<(), DomainError> {
         if let Err(e) = self.reopen_backend() {
             self.reset_health_state();
@@ -449,12 +453,23 @@ impl RodioAdapter {
                 "Audio device lost. Playback stopped. ({e})"
             )));
         }
-        self.shared_mut().state = PlayerState::Paused;
-        self.pending_route_change = Some(seek_to);
-        self.route_change_notified = true;
-        self.last_pos = seek_to;
-        self.last_pos_moved = None;
-        self.last_health_check = None;
+        if self.retained_bytes.is_some() {
+            self.shared_mut().state = PlayerState::Paused;
+            self.pending_route_change = Some(seek_to);
+            self.route_change_notice = Some(RouteChangeNotice::ResumeAvailable);
+            self.last_pos = seek_to;
+            self.last_pos_moved = None;
+            self.last_health_check = None;
+        } else {
+            // Source not retained: resume() cannot rebuild the track, so never
+            // set a resume promise that cannot be fulfilled.
+            self.shared_mut().state = PlayerState::Stopped;
+            self.pending_route_change = None;
+            self.route_change_notice = Some(RouteChangeNotice::RestartRequired);
+            self.last_pos = 0.0;
+            self.last_pos_moved = None;
+            self.last_health_check = None;
+        }
         Ok(())
     }
 
@@ -562,8 +577,8 @@ impl AudioPlaybackPort for RodioAdapter {
         self.set_spectrum_enabled(enabled);
     }
 
-    fn take_route_change_notification(&mut self) -> bool {
-        std::mem::take(&mut self.route_change_notified)
+    fn take_route_change_notice(&mut self) -> Option<RouteChangeNotice> {
+        self.route_change_notice.take()
     }
 
     /// Watchdog: detect a dead/stalled audio backend (e.g. the WASAPI/cpal

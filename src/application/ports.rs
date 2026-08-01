@@ -13,6 +13,18 @@ pub trait MediaSearchPort: Send + Sync {
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<Song>, DomainError>;
 }
 
+/// Why playback paused/stopped after an output route change (Jack <-> Bluetooth).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RouteChangeNotice {
+    /// The backend paused with a recoverable position; the user can press
+    /// play to continue from where it left off (retained bytes available).
+    ResumeAvailable,
+    /// The source was not retained (song > MAX_RETAINED_BYTES or file
+    /// playback) so it cannot be rebuilt; playback stopped and the user
+    /// must explicitly play the song again. No resume promise.
+    RestartRequired,
+}
+
 /// Port for audio/video playback abstraction.
 pub trait AudioPlaybackPort: Send {
     #[allow(dead_code)]
@@ -39,13 +51,11 @@ pub trait AudioPlaybackPort: Send {
         Ok(())
     }
 
-    /// If the output device changed since the last health check, returns true
-    /// exactly once and clears the flag. The backend has already switched to
-    /// the live sink and paused; the caller should surface a notification and
-    /// wait for explicit resume. The resume position is consumed internally by
-    /// `resume()`, so this signal is purely the notification trigger.
-    fn take_route_change_notification(&mut self) -> bool {
-        false
+    /// Returns why the last route change paused/stopped playback, exactly once,
+    /// then clears it. The resume position itself is consumed internally by
+    /// `resume()`; this signal only drives UI messaging.
+    fn take_route_change_notice(&mut self) -> Option<RouteChangeNotice> {
+        None
     }
 }
 

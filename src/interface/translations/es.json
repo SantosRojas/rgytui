@@ -91,6 +91,7 @@
   "notif_resumed": "▶ Reanudado",
   "notif_stopped": "⏹ Detenido",
   "notif_device_changed": "Cambió la salida de audio. Pausado — presioná play para continuar",
+  "notif_device_changed_stopped": "Dispositivo de audio cambiado. Reproducción detenida. Reproduce la canción de nuevo para continuar.",
   "notif_volume": "Volumen: {:.0}%",
   "notif_theme": "Tema: {}",
   "notif_mode": "Modo: {}",

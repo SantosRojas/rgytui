@@ -8,6 +8,7 @@ mod uninstall;
 mod update;
 
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use anyhow::Context;
 use tracing_subscriber::EnvFilter;
@@ -35,6 +36,12 @@ async fn main() -> Result<(), anyhow::Error> {
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,symphonia=error")),
         )
+        // The TUI owns stdout (alternate screen + raw mode), so logs must never
+        // be written there: a warn/error mid-render would inject raw text into
+        // the interface at the cursor position (e.g. inside the search input).
+        // Redirect to a log file in the user config dir instead.
+        .with_writer(Mutex::new(open_log_writer()))
+        .with_ansi(false)
         .init();
 
     let mut config = ConfigAdapter::new().await.context("Failed to load config")?;
@@ -90,6 +97,36 @@ async fn main() -> Result<(), anyhow::Error> {
             tracing::error!("Application error: {}", e);
             eprintln!("Error: {}", e);
             Err(e)
+        }
+    }
+}
+
+/// Open (creating if needed) the log file the tracing subscriber writes to.
+/// Logs live in the user config dir next to settings.json, so the TUI's
+/// stdout stays pristine. On any failure fall back to the null device:
+/// logging must never crash startup.
+fn open_log_writer() -> Box<dyn std::io::Write + Send + Sync> {
+    let config_dir = directories::ProjectDirs::from("com", "rgytui", "rgytui")
+        .map(|d| d.config_dir().to_path_buf())
+        .or_else(|| {
+            // Same fallback as ConfigAdapter for sandboxed/container environments.
+            std::env::current_dir()
+                .ok()
+                .map(|dir| dir.join(".rgytui"))
+        });
+    let Some(config_dir) = config_dir else {
+        return Box::new(std::io::sink());
+    };
+    if let Err(e) = std::fs::create_dir_all(&config_dir) {
+        eprintln!("Warning: cannot create log directory {}: {e}", config_dir.display());
+        return Box::new(std::io::sink());
+    }
+    let path = config_dir.join("rgytui.log");
+    match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(file) => Box::new(file),
+        Err(e) => {
+            eprintln!("Warning: cannot open log file {}: {e}", path.display());
+            Box::new(std::io::sink())
         }
     }
 }
