@@ -15,7 +15,10 @@ pub enum AppEvent {
     /// Emitted when a song finishes naturally (used for auto-advance).
     #[allow(dead_code)]
     PlaybackFinished,
+    /// Video stream URL resolution failed (background task, Video mode).
     PlaybackError(String),
+    /// Live audio backend error (health check) — always current, never stale.
+    PlaybackHealthError(String),
     DownloadComplete { song_title: String },
     DownloadError(String),
     /// Audio bytes are ready for playback (downloaded in background).

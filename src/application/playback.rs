@@ -31,9 +31,15 @@ impl PlaybackUseCase {
 
     /// Toggle audio/video mode. Returns an error if switching to video but
     /// mpv is not installed on the system.
+    ///
+    /// Stops BOTH backends so nothing keeps playing from the old mode
+    /// (rodio for audio, the mpv child process for video).
     pub async fn toggle_mode(&mut self) -> Result<(), DomainError> {
         if let Err(e) = self.stop() {
             tracing::warn!("Failed to stop while toggling mode: {}", e);
+        }
+        if let Err(e) = self.mpv.stop().await {
+            tracing::warn!("Failed to stop mpv while toggling mode: {}", e);
         }
         let new_mode = match self.mode {
             AudioMode::Audio => AudioMode::Video,

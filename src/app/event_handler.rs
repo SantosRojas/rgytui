@@ -27,6 +27,23 @@ impl App {
                 // Keep it as a no-op to avoid double-advance bugs.
             }
             AppEvent::PlaybackError(err) => {
+                // Video stream resolution failed in a background task. Ignore
+                // it if the mode flipped since (the task belongs to the old
+                // mode) — clearing current_song here would abort the fresh
+                // playback that the mode toggle just started.
+                if !matches!(self.playback.mode(), AudioMode::Video) {
+                    return;
+                }
+                self.ui.player.loading_status = None;
+                self.ui.push_notification(
+                    self.ui.tr("err_playback").replace("{}", &err),
+                    NotificationLevel::Error,
+                );
+                self.ui.player.current_song = None;
+            }
+            AppEvent::PlaybackHealthError(err) => {
+                // Live backend error (watchdog detected a dead/stalled audio
+                // device). Always current — clear playback state.
                 self.ui.player.loading_status = None;
                 self.ui.push_notification(
                     self.ui.tr("err_playback").replace("{}", &err),
@@ -49,6 +66,21 @@ impl App {
                 );
             }
             AppEvent::AudioReady { song, data } => {
+                // Drop stale events: the song was switched away, or the
+                // playback mode changed after the download started (a mode
+                // toggle re-queues the song and spawns a fresh task in the
+                // new mode). Playing them would start the OLD mode's backend
+                // over the new one.
+                let song_is_current = self
+                    .ui
+                    .player
+                    .current_song
+                    .as_ref()
+                    .map(|s| s.id == song.id)
+                    .unwrap_or(false);
+                if !song_is_current || !matches!(self.playback.mode(), AudioMode::Audio) {
+                    return;
+                }
                 match self.playback.play_bytes(data, song) {
                     Ok(()) => {
                         self.ui.push_notification(self.ui.tr("notif_playing"), NotificationLevel::Info);
@@ -64,6 +96,12 @@ impl App {
                 self.ui.player.loading_status = None;
             }
             AppEvent::AudioDownloadError(err) => {
+                // Background audio download failed. Ignore it if the mode
+                // flipped to Video since — clearing current_song would abort
+                // the fresh video playback that the toggle just started.
+                if !matches!(self.playback.mode(), AudioMode::Audio) {
+                    return;
+                }
                 self.ui.push_notification(
                     self.ui.tr("err_playback").replace("{}", &err),
                     NotificationLevel::Error,
@@ -73,6 +111,19 @@ impl App {
             }
             AppEvent::VideoStreamReady { song, stream_url } => {
                 self.ui.player.loading_status = None;
+                // Drop stale events from a mode toggle or song switch — the
+                // stream belongs to the old mode/selection. Without this, a
+                // leftover video stream would spawn mpv over the new mode.
+                let song_is_current = self
+                    .ui
+                    .player
+                    .current_song
+                    .as_ref()
+                    .map(|s| s.id == song.id)
+                    .unwrap_or(false);
+                if !song_is_current || !matches!(self.playback.mode(), AudioMode::Video) {
+                    return;
+                }
                 match self.playback.play_video_stream(&stream_url, song).await {
                     Ok(()) => {}
                     Err(e) => {

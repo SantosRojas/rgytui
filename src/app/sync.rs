@@ -8,12 +8,14 @@ impl App {
         }
 
         // Watchdog: detect a dead/stalled audio backend (e.g. the device dying
-        // after a long pause). Routed through the existing PlaybackError flow
-        // so current_song is cleared and the user is notified, keeping the UI
-        // responsive instead of freezing forever on the next play action.
+        // after a long pause). Routed through the PlaybackHealthError flow
+        // (distinct from PlaybackError, which background video tasks emit and
+        // which may be stale after a mode toggle) so current_song is cleared
+        // and the user is notified, keeping the UI responsive instead of
+        // freezing forever on the next play action.
         if let Err(e) = self.playback.check_health() {
             tracing::warn!("Playback health check failed: {e}");
-            self.handle_event(AppEvent::PlaybackError(e.to_string())).await;
+            self.handle_event(AppEvent::PlaybackHealthError(e.to_string())).await;
             return;
         }
 

@@ -3,6 +3,7 @@ use super::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::domain::error::DomainError;
 use crate::interface::i18n::Translations;
 
 impl App {
@@ -286,14 +287,14 @@ impl App {
                 6 => {
                     // Mirror the player-screen 'v' key: toggle mode via
                     // PlaybackUseCase (which validates mpv presence for video).
-                    if let Err(e) = self.playback.toggle_mode().await {
+                    // Continues the current song in the new mode.
+                    if let Err(e) = self.toggle_playback_mode().await {
                         self.ui.push_notification(
                             self.ui.tr("err_playback").replace("{}", &e.to_string()),
                             NotificationLevel::Error,
                         );
                     } else {
                         let mode = self.playback.mode();
-                        self.settings.audio_mode = matches!(mode, AudioMode::Video);
                         let label = match mode {
                             AudioMode::Audio => self.ui.tr("status_audio"),
                             AudioMode::Video => self.ui.tr("status_video"),
@@ -712,7 +713,9 @@ impl App {
                 );
             }
             KeyCode::Char('v') => {
-                if let Err(e) = self.playback.toggle_mode().await {
+                // Toggle mode and continue the current song in the new mode
+                // (stops rodio + mpv, re-queues the same song).
+                if let Err(e) = self.toggle_playback_mode().await {
                     self.ui.push_notification(
                         self.ui.tr("err_playback").replace("{}", &e.to_string()),
                         NotificationLevel::Error,
@@ -811,5 +814,23 @@ impl App {
             _ => {}
         }
         Ok(false)
+    }
+
+    /// Toggle playback mode (audio <-> video) and seamlessly continue the
+    /// currently loaded song in the new mode.
+    ///
+    /// `toggle_mode()` stops both backends (rodio + mpv). If a song is loaded,
+    /// it is re-queued so `handle_pending_play` dispatches it through the new
+    /// mode's pipeline. Without this, `current_song` stays stale and the
+    /// "already playing" guard blocks the user from playing the same song in
+    /// the other mode.
+    pub(crate) async fn toggle_playback_mode(&mut self) -> Result<(), DomainError> {
+        let current = self.ui.player.current_song.clone();
+        self.playback.toggle_mode().await?;
+        self.settings.audio_mode = matches!(self.playback.mode(), AudioMode::Video);
+        if let Some(song) = current {
+            self.queue_play(song);
+        }
+        Ok(())
     }
 }

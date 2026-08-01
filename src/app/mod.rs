@@ -609,12 +609,17 @@ mod tests {
 
     /// Helper to build a test App. Returns None if audio device isn't available.
     async fn build_test_app() -> Option<App> {
+        build_test_app_with_mode(AudioMode::Audio).await
+    }
+
+    /// Like [`build_test_app`], but with a specific initial playback mode.
+    async fn build_test_app_with_mode(mode: AudioMode) -> Option<App> {
         let audio: Box<dyn AudioPlaybackPort> = Box::new(RodioAdapter::new().ok()?);
         let mpv = MpvAdapter::new();
         let ytdlp = YtDlpAdapter::new();
         let downloader: Arc<dyn DownloaderPort> = Arc::new(ytdlp.clone());
         let search_port: Arc<dyn MediaSearchPort> = Arc::new(ytdlp);
-        let playback = PlaybackUseCase::new(downloader, audio, mpv, AudioMode::Audio);
+        let playback = PlaybackUseCase::new(downloader, audio, mpv, mode);
         let search = SearchUseCase::new(search_port);
         let playlist = PlaylistUseCase::new();
         let config: Box<dyn ConfigPort> = Box::new(crate::application::ports::MockConfig {
@@ -892,8 +897,8 @@ mod tests {
         };
         app.ui.player.current_song = Some(song);
 
-        // Send PlaybackError
-        app.handle_event(AppEvent::PlaybackError("Something went wrong".into())).await;
+        // Send PlaybackHealthError (live backend error, e.g. watchdog)
+        app.handle_event(AppEvent::PlaybackHealthError("Something went wrong".into())).await;
         assert!(app.ui.player.current_song.is_none(), "current_song should be cleared after error");
     }
 
@@ -944,8 +949,8 @@ mod tests {
         app.playlist.add(song.clone());
         app.playlist.set_current_index(0);
 
-        // Simulate an error
-        app.handle_event(AppEvent::PlaybackError("Failed".into())).await;
+        // Simulate an error (live backend error clears current_song)
+        app.handle_event(AppEvent::PlaybackHealthError("Failed".into())).await;
         assert!(app.ui.player.current_song.is_none());
 
         // Now simulate re-selecting the same song: call schedule_play_selected
@@ -1651,5 +1656,149 @@ mod tests {
         app.handle_mouse(click(10, 5)); // selects index 1
         app.handle_mouse(click(10, 5)); // double-click
         assert!(app.pending_play.is_some(), "replay after error should be allowed");
+    }
+
+    // ── Playback mode toggle (video <-> audio) ─────────────────────────
+
+    #[tokio::test]
+    async fn test_toggle_mode_continues_current_song_in_new_mode() {
+        let mut app = match build_test_app_with_mode(AudioMode::Video).await {
+            Some(a) => a,
+            None => return,
+        };
+        let playing = song(1);
+        app.ui.player.current_song = Some(playing.clone());
+        app.pending_play = None;
+
+        let result = app.toggle_playback_mode().await;
+
+        assert!(result.is_ok(), "toggling to audio should not require mpv");
+        assert!(
+            matches!(app.playback.mode(), AudioMode::Audio),
+            "mode should flip to Audio"
+        );
+        assert_eq!(
+            app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
+            Some("id-1"),
+            "current song should be preserved"
+        );
+        assert!(
+            app.pending_play.is_some(),
+            "same song should be re-queued to continue in the new mode"
+        );
+        assert_eq!(
+            app.pending_play.as_ref().map(|s| s.id.as_str()),
+            Some("id-1"),
+            "re-queued song should be the same one"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_toggle_mode_with_no_song_does_not_queue_play() {
+        let mut app = match build_test_app_with_mode(AudioMode::Video).await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.player.current_song = None;
+        app.pending_play = None;
+
+        let result = app.toggle_playback_mode().await;
+
+        assert!(result.is_ok());
+        assert!(
+            app.pending_play.is_none(),
+            "nothing loaded — no song to re-queue"
+        );
+        assert!(
+            matches!(app.playback.mode(), AudioMode::Audio),
+            "mode should still flip"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stale_audio_ready_in_video_mode_is_dropped() {
+        let mut app = match build_test_app_with_mode(AudioMode::Video).await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.player.current_song = Some(song(1));
+        app.ui.player.loading_status = Some("loading".into());
+
+        // AudioReady arrives while mode is Video — stale (leftover task from a
+        // mode toggle). It must not reach the audio backend.
+        app.handle_event(AppEvent::AudioReady {
+            song: song(1),
+            data: vec![1, 2, 3],
+        })
+        .await;
+
+        // Mode is Video, so nothing was played: no notification pushed,
+        // current song untouched.
+        assert_eq!(
+            app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
+            Some("id-1"),
+            "stale event must not clear the current song"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_audio_ready_for_switched_away_song_is_dropped() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        // Song 1 was queued, but the user already switched to song 2.
+        app.ui.player.current_song = Some(song(2));
+
+        app.handle_event(AppEvent::AudioReady {
+            song: song(1),
+            data: vec![1, 2, 3],
+        })
+        .await;
+
+        assert_eq!(
+            app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
+            Some("id-2"),
+            "stale event for a switched-away song must be dropped"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stale_audio_download_error_in_video_mode_is_dropped() {
+        let mut app = match build_test_app_with_mode(AudioMode::Video).await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.player.current_song = Some(song(1));
+
+        // Old audio-mode task failed AFTER the toggle to Video: the error is
+        // stale and must NOT clear the current song (the fresh video task is
+        // still running and its VideoStreamReady must be honored).
+        app.handle_event(AppEvent::AudioDownloadError("Download failed".into()))
+            .await;
+
+        assert_eq!(
+            app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
+            Some("id-1"),
+            "stale download error must not clear current_song"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stale_playback_error_in_audio_mode_is_dropped() {
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.player.current_song = Some(song(1));
+
+        // Old video-mode stream task failed AFTER the toggle to Audio: stale.
+        app.handle_event(AppEvent::PlaybackError("Stream failed".into())).await;
+
+        assert_eq!(
+            app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
+            Some("id-1"),
+            "stale playback error must not clear current_song"
+        );
     }
 }
