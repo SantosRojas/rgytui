@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use rodio::cpal::traits::{DeviceTrait, HostTrait};
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
 
 use crate::application::ports::AudioPlaybackPort;
@@ -28,6 +29,10 @@ const STALL_TIMEOUT: Duration = Duration::from_secs(3);
 /// Minimum interval between health checks, so the 50ms UI poll loop doesn't
 /// hammer the backend with lock acquisitions.
 const HEALTH_CHECK_INTERVAL: Duration = Duration::from_millis(500);
+/// Minimum interval between output-device identity checks (route-change
+/// detection). Cheaper than `default_output_device()` being called every
+/// health check; a Jack 3.5mm <-> Bluetooth switch is not time-critical.
+const DEVICE_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 /// Retained-bytes cap for transparent device-loss recovery. Typical songs are
 /// 2-8 MB; holding one song bounded by this cap is cheap. Larger files (rare)
 /// fall back to the error path on device loss.
@@ -54,6 +59,13 @@ pub struct RodioAdapter {
     /// When the position last moved. `None` = never moved since the last
     /// play/pause cycle started.
     last_pos_moved: Option<std::time::Instant>,
+    /// Device id of the default output device the current sink was opened on.
+    /// Compared periodically against the live default to detect a route change
+    /// (Jack 3.5mm <-> Bluetooth). When it differs while playing, the current
+    /// sink points at a dead endpoint and must be rebuilt.
+    sink_device_id: Option<String>,
+    /// Timestamp of the last output-device identity check (rate limiting).
+    last_device_check: Option<std::time::Instant>,
     /// Audio bytes of the currently playing song, retained so playback can be
     /// rebuilt transparently if the audio device is lost mid-play/pause.
     /// Dropped on stop(); bounded by MAX_RETAINED_BYTES.
@@ -65,6 +77,10 @@ impl RodioAdapter {
         let mut handle = DeviceSinkBuilder::open_default_sink()
             .map_err(|e| DomainError::Audio(format!("Cannot open audio output: {}", e)))?;
         handle.log_on_drop(false);
+        // Capture the id AFTER the sink opened, so the recorded identity matches
+        // the endpoint the sink actually opened on (the default can flip
+        // between the two calls).
+        let device_id = Self::default_device_id();
         let player = Player::connect_new(handle.mixer());
 
         Ok(Self {
@@ -80,12 +96,49 @@ impl RodioAdapter {
             last_health_check: None,
             last_pos: 0.0,
             last_pos_moved: None,
+            sink_device_id: device_id,
+            last_device_check: None,
             retained_bytes: None,
         })
     }
 
     fn shared_mut(&self) -> std::sync::MutexGuard<'_, SharedState> {
         lock_or_warn(&self.shared, "rodio_shared")
+    }
+
+    /// Identity of the current default output device, used as the key for
+    /// route-change detection: `DeviceId` is stable across reboots and
+    /// reconnections (unlike `name()`). `None` when enumeration fails (backend
+    /// still usable; the check just stays inert until an id is available).
+    fn default_device_id() -> Option<String> {
+        rodio::cpal::default_host()
+            .default_output_device()
+            .and_then(|device| device.id().ok().map(|id| id.to_string()))
+    }
+
+    /// Rate-limited check whether the default output device changed since the
+    /// sink was opened (Jack 3.5mm <-> Bluetooth route switch). Also bumps
+    /// `last_device_check` so callers can cheaply gate on it.
+    fn device_changed(&mut self) -> bool {
+        let now = std::time::Instant::now();
+        if let Some(last) = self.last_device_check
+            && now.duration_since(last) < DEVICE_CHECK_INTERVAL
+        {
+            return false;
+        }
+        self.last_device_check = Some(now);
+        let Some(current) = Self::default_device_id() else {
+            return false;
+        };
+        self.sink_device_id.as_ref() != Some(&current)
+    }
+
+    /// Pure predicate for the route-change check: only watch while actually
+    /// playing AND the sink still holds audio. When the sink is empty the song
+    /// ended naturally and auto-advance owns the flow — recovering here would
+    /// race it by re-creating the finished song.
+    fn should_check_device(state: PlayerState, sink_empty: bool) -> bool {
+        state == PlayerState::Playing && !sink_empty
     }
 
     /// Pure predicate for the retained-bytes cap: keep a song's bytes only if they
@@ -125,6 +178,21 @@ impl RodioAdapter {
                 FLUSH_DRAIN_TIMEOUT
             );
             self.reopen_backend()?;
+        } else {
+            // Force a fresh device comparison at play start so a route change
+            // inside the 1s rate-limit window is not masked: a stale
+            // `last_device_check` could otherwise append to the dead sink and
+            // recreate the mute until the next health check.
+            self.last_device_check = None;
+            if self.device_changed() {
+                // Route change while starting playback: the old sink points at a
+                // dead endpoint, so appending here would play into silence. Reopen
+                // first so the fresh source lands on the live default device.
+                tracing::warn!(
+                    "Audio output device changed while starting playback; reopening backend"
+                );
+                self.reopen_backend()?;
+            }
         }
 
         self.player.append(source);
@@ -178,15 +246,21 @@ impl RodioAdapter {
     }
 
     /// Rebuild the device handle and player after the backend was detected as
-    /// dead/stalled. The `Arc` fields (`shared`, `spectrum`, `spectrum_enabled`)
-    /// are untouched, so volume and the spectrum flag survive a reopen.
+    /// dead/stalled (or after a route change). The `Arc` fields (`shared`,
+    /// `spectrum`, `spectrum_enabled`) are untouched, so volume and the
+    /// spectrum flag survive a reopen. Records the new device identity so the
+    /// route-change check compares against the live endpoint.
     fn reopen_backend(&mut self) -> Result<(), DomainError> {
         let mut handle = DeviceSinkBuilder::open_default_sink()
             .map_err(|e| DomainError::Audio(format!("Cannot open audio output: {}", e)))?;
         handle.log_on_drop(false);
+        // Capture the id AFTER the sink opened so the recorded identity matches
+        // the endpoint the new sink actually opened on.
+        let device_id = Self::default_device_id();
         let player = Player::connect_new(handle.mixer());
         self._handle = handle;
         self.player = player;
+        self.sink_device_id = device_id;
         Ok(())
     }
 
@@ -309,6 +383,56 @@ impl RodioAdapter {
     pub fn set_spectrum_enabled(&mut self, enabled: bool) {
         self.spectrum_enabled.store(enabled, Ordering::Relaxed);
     }
+
+    /// Reopen the backend and rebuild playback from retained bytes at
+    /// `seek_to`. Transparent when the rebuild succeeds. When it fails (no
+    /// retained bytes, rebuild error, or reopen error) the internal state is
+    /// reset to Stopped BEFORE the error is returned, so the app clears the
+    /// song and unblocks instead of staying wedged in a stale Playing state.
+    fn recover_backend(&mut self, seek_to: f64, reason: &str) -> Result<(), DomainError> {
+        tracing::warn!("{reason}; reopening audio backend");
+        if let Err(e) = self.reopen_backend() {
+            self.reset_health_state();
+            return Err(DomainError::Audio(format!(
+                "Audio device lost. Playback stopped. ({e})"
+            )));
+        }
+        // Take the bytes out so rebuild_after_reopen can borrow self mutably,
+        // then put them back on success so a later device loss can also recover.
+        let retained = self.retained_bytes.take();
+        let rebuild_err = if let Some(data) = retained {
+            match self.rebuild_after_reopen(&data, seek_to) {
+                Ok(()) => {
+                    self.retained_bytes = Some(data);
+                    // Transparent recovery: playback resumed at seek_to. No error surfaced.
+                    return Ok(());
+                }
+                Err(e) => Some(e),
+            }
+        } else {
+            None
+        };
+        self.reset_health_state();
+        // Preserve the underlying rebuild failure (decode/seek) when present so
+        // the log and UI notification carry the real diagnostics.
+        match rebuild_err {
+            Some(e) => Err(DomainError::Audio(format!(
+                "Audio device lost. Playback stopped. ({e})"
+            ))),
+            None => Err(DomainError::Audio(
+                "Audio device lost. Playback stopped.".into(),
+            )),
+        }
+    }
+
+    /// Reset the watchdog tracking and shared state after an unrecoverable
+    /// backend failure so the next play cycle starts from a clean slate.
+    fn reset_health_state(&mut self) {
+        self.shared_mut().state = PlayerState::Stopped;
+        self.last_pos = 0.0;
+        self.last_pos_moved = None;
+        self.last_health_check = None;
+    }
 }
 
 impl AudioPlaybackPort for RodioAdapter {
@@ -365,7 +489,8 @@ impl AudioPlaybackPort for RodioAdapter {
     }
 
     /// Watchdog: detect a dead/stalled audio backend (e.g. the WASAPI/cpal
-    /// device dying after a long pause) and recover by reopening the backend.
+    /// device dying after a long pause, or a Jack/Bluetooth route change) and
+    /// recover by reopening the backend.
     /// Called periodically from the UI poll loop; rate-limited internally.
     fn check_health(&mut self) -> Result<(), DomainError> {
         let now = std::time::Instant::now();
@@ -379,7 +504,29 @@ impl AudioPlaybackPort for RodioAdapter {
         // Only watchdog actual playback. While paused the position is frozen
         // by design, and when the sink is empty the song ended naturally
         // (auto-advance handles it).
-        if self.shared_mut().state != PlayerState::Playing || self.player.empty() {
+        if self.shared_mut().state != PlayerState::Playing {
+            return Ok(());
+        }
+
+        // Route-change detection: a switched default output device (Jack 3.5mm
+        // <-> Bluetooth) invalidates the current sink even when the stream
+        // keeps pumping silence, which the frozen-position heuristic below
+        // would never catch (position keeps moving). Rebuild transparently
+        // from the retained bytes at the last position. Seek target = the live
+        // position, because after a paused route-switch + resume `last_pos` is
+        // 0 (resume() zeroes it) and the live get_pos() is the true position;
+        // max() guards a dead sink reporting 0.
+        let sink_empty = self.player.empty();
+        if Self::should_check_device(PlayerState::Playing, sink_empty) && self.device_changed() {
+            let seek_to = self.player.get_pos().as_secs_f64().max(self.last_pos);
+            return self.recover_backend(
+                seek_to,
+                "Audio output device changed (Jack/Bluetooth route switch)",
+            );
+        }
+
+        if sink_empty {
+            // Natural end of the song; auto-advance owns the flow.
             return Ok(());
         }
 
@@ -410,29 +557,8 @@ impl AudioPlaybackPort for RodioAdapter {
             "Audio position frozen for {:?} while playing; backend presumed dead, recovering",
             STALL_TIMEOUT
         );
-        self.reopen_backend()?;
-        let seek_to = self.last_pos; // capture BEFORE play_source resets tracking
-        // Take the bytes out so rebuild_after_reopen can borrow self mutably, then
-        // put them back on success so a later device loss can also recover.
-        let retained = self.retained_bytes.take();
-        if let Some(data) = retained {
-            match self.rebuild_after_reopen(&data, seek_to) {
-                Ok(()) => {
-                    self.retained_bytes = Some(data);
-                    // Transparent recovery: playback resumed at seek_to. No error surfaced.
-                    return Ok(());
-                }
-                Err(_) => {
-                    // Rebuild failed; fall through to stop and report below.
-                }
-            }
-        }
-        // No retained bytes or rebuild failed: stop and report so the app clears the song.
-        self.shared_mut().state = PlayerState::Stopped;
-        self.last_pos = 0.0;
-        self.last_pos_moved = None;
-        self.last_health_check = None;
-        Err(DomainError::Audio("Audio device lost. Playback stopped.".into()))
+        let seek_to = self.last_pos; // capture BEFORE recover resets tracking
+        self.recover_backend(seek_to, "Audio position frozen while playing; backend presumed dead")
     }
 }
 
@@ -469,5 +595,19 @@ mod tests {
         assert!(RodioAdapter::should_retain(0));
         assert!(RodioAdapter::should_retain(super::MAX_RETAINED_BYTES));
         assert!(!RodioAdapter::should_retain(super::MAX_RETAINED_BYTES + 1));
+    }
+
+    #[test]
+    fn should_check_device_only_while_playing_with_content() {
+        use crate::domain::player_state::PlayerState;
+        // Route-change check is only meaningful while audio is actually
+        // flowing: paused playback is covered by the stall watchdog on resume,
+        // and an empty sink means the song ended naturally (auto-advance owns
+        // the flow — recovering here would race it).
+        assert!(RodioAdapter::should_check_device(PlayerState::Playing, false));
+        assert!(!RodioAdapter::should_check_device(PlayerState::Playing, true));
+        assert!(!RodioAdapter::should_check_device(PlayerState::Paused, false));
+        assert!(!RodioAdapter::should_check_device(PlayerState::Stopped, false));
+        assert!(!RodioAdapter::should_check_device(PlayerState::Idle, false));
     }
 }
