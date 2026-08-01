@@ -26,17 +26,20 @@ impl App {
                 // This arm exists only for future event-driven use.
                 // Keep it as a no-op to avoid double-advance bugs.
             }
-            AppEvent::PlaybackError(err) => {
+            AppEvent::PlaybackError { message, generation } => {
                 // Video stream resolution failed in a background task. Ignore
-                // it if the mode flipped since (the task belongs to the old
-                // mode) — clearing current_song here would abort the fresh
-                // playback that the mode toggle just started.
-                if !matches!(self.playback.mode(), AudioMode::Video) {
+                // it if a newer play superseded it (generation bump) or the
+                // mode flipped since (the task belongs to the old mode) —
+                // clearing current_song here would abort the fresh playback
+                // that the toggle just started.
+                if generation != self.play_generation
+                    || !matches!(self.playback.mode(), AudioMode::Video)
+                {
                     return;
                 }
                 self.ui.player.loading_status = None;
                 self.ui.push_notification(
-                    self.ui.tr("err_playback").replace("{}", &err),
+                    self.ui.tr("err_playback").replace("{}", &message),
                     NotificationLevel::Error,
                 );
                 self.ui.player.current_song = None;
@@ -65,12 +68,12 @@ impl App {
                     NotificationLevel::Error,
                 );
             }
-            AppEvent::AudioReady { song, data } => {
-                // Drop stale events: the song was switched away, or the
-                // playback mode changed after the download started (a mode
-                // toggle re-queues the song and spawns a fresh task in the
-                // new mode). Playing them would start the OLD mode's backend
-                // over the new one.
+            AppEvent::AudioReady { song, data, generation } => {
+                // Drop stale events: the song was switched away, the playback
+                // mode changed after the download started, or the task belongs
+                // to an older play generation (a mode toggle re-queues the
+                // song and spawns a fresh task in the new mode). Playing them
+                // would start the OLD mode's backend over the new one.
                 let song_is_current = self
                     .ui
                     .player
@@ -78,7 +81,10 @@ impl App {
                     .as_ref()
                     .map(|s| s.id == song.id)
                     .unwrap_or(false);
-                if !song_is_current || !matches!(self.playback.mode(), AudioMode::Audio) {
+                if generation != self.play_generation
+                    || !song_is_current
+                    || !matches!(self.playback.mode(), AudioMode::Audio)
+                {
                     return;
                 }
                 match self.playback.play_bytes(data, song) {
@@ -95,25 +101,28 @@ impl App {
                 }
                 self.ui.player.loading_status = None;
             }
-            AppEvent::AudioDownloadError(err) => {
-                // Background audio download failed. Ignore it if the mode
-                // flipped to Video since — clearing current_song would abort
-                // the fresh video playback that the toggle just started.
-                if !matches!(self.playback.mode(), AudioMode::Audio) {
+            AppEvent::AudioDownloadError { message, generation } => {
+                // Background audio download failed. Ignore it if a newer play
+                // superseded it or the mode flipped to Video since — clearing
+                // current_song would abort the fresh playback just started.
+                if generation != self.play_generation
+                    || !matches!(self.playback.mode(), AudioMode::Audio)
+                {
                     return;
                 }
                 self.ui.push_notification(
-                    self.ui.tr("err_playback").replace("{}", &err),
+                    self.ui.tr("err_playback").replace("{}", &message),
                     NotificationLevel::Error,
                 );
                 self.ui.player.loading_status = None;
                 self.ui.player.current_song = None;
             }
-            AppEvent::VideoStreamReady { song, stream_url } => {
+            AppEvent::VideoStreamReady { song, stream_url, generation } => {
                 self.ui.player.loading_status = None;
                 // Drop stale events from a mode toggle or song switch — the
-                // stream belongs to the old mode/selection. Without this, a
-                // leftover video stream would spawn mpv over the new mode.
+                // stream belongs to the old mode/selection, or the task is
+                // from an older play generation. Without this, a leftover
+                // video stream would spawn mpv over the new mode.
                 let song_is_current = self
                     .ui
                     .player
@@ -121,7 +130,10 @@ impl App {
                     .as_ref()
                     .map(|s| s.id == song.id)
                     .unwrap_or(false);
-                if !song_is_current || !matches!(self.playback.mode(), AudioMode::Video) {
+                if generation != self.play_generation
+                    || !song_is_current
+                    || !matches!(self.playback.mode(), AudioMode::Video)
+                {
                     return;
                 }
                 match self.playback.play_video_stream(&stream_url, song).await {

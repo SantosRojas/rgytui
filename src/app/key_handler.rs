@@ -826,11 +826,34 @@ impl App {
     /// the other mode.
     pub(crate) async fn toggle_playback_mode(&mut self) -> Result<(), DomainError> {
         let current = self.ui.player.current_song.clone();
-        self.playback.toggle_mode().await?;
+        if let Err(e) = self.playback.toggle_mode().await {
+            // Toggle failed (e.g. switching to Video without mpv). Both
+            // backends were already stopped, so nothing is playing — clear
+            // the stale song so the "already playing" guard does not block
+            // re-selecting it in the current mode, and invalidate any
+            // in-flight task from the previous play.
+            self.on_toggle_failure();
+            return Err(e);
+        }
         self.settings.audio_mode = matches!(self.playback.mode(), AudioMode::Video);
         if let Some(song) = current {
             self.queue_play(song);
         }
         Ok(())
+    }
+
+    /// Reset playback state after a failed mode toggle.
+    ///
+    /// Bumps `play_generation` so events from an in-flight background task
+    /// (spawned by the previous play) are dropped by the generation guard in
+    /// `handle_event`. Without the bump, a task of the same generation could
+    /// emit `AudioReady`/`VideoStreamReady` after the clear: `current_song`
+    /// would be None so the song guard drops it, the download is discarded,
+    /// and `loading_status` stays stuck. Clearing both fields here keeps the
+    /// UI consistent and lets the user re-select the song.
+    pub(crate) fn on_toggle_failure(&mut self) {
+        self.play_generation += 1;
+        self.ui.player.loading_status = None;
+        self.ui.player.current_song = None;
     }
 }

@@ -29,6 +29,9 @@ impl App {
             let song_name = song.title.clone();
             self.ui.player.loading_status =
                 Some(self.ui.tr("downloading").replace("{}", &song_name));
+            // Generation captured at spawn time: any event this task emits is
+            // only honored if no newer play superseded it (queue_play bumps).
+            let generation = self.play_generation;
 
             match self.playback.mode() {
                 AudioMode::Video => {
@@ -45,10 +48,14 @@ impl App {
                                 let _ = tx.send(AppEvent::VideoStreamReady {
                                     song: song_for_event,
                                     stream_url,
+                                    generation,
                                 }).await;
                             }
                             Err(e) => {
-                                let _ = tx.send(AppEvent::PlaybackError(e.to_string())).await;
+                                let _ = tx.send(AppEvent::PlaybackError {
+                                    message: e.to_string(),
+                                    generation,
+                                }).await;
                             }
                         }
                     });
@@ -66,7 +73,7 @@ impl App {
                         // Fast path: try cache first (local read — no cancellation needed)
                         match cache.get(&song_id).await {
                             Ok(Some(data)) => {
-                                let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data }).await;
+                                let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data, generation }).await;
                                 return;
                             }
                             Ok(None) => {} // cache miss → download
@@ -84,10 +91,13 @@ impl App {
                                         if let Err(e) = cache.put(&song_id, &data).await {
                                             tracing::warn!("Failed to cache audio: {e}");
                                         }
-                                        let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data }).await;
+                                        let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data, generation }).await;
                                     }
                                     Err(e) => {
-                                        let _ = tx.send(AppEvent::AudioDownloadError(e.to_string())).await;
+                                        let _ = tx.send(AppEvent::AudioDownloadError {
+                                            message: e.to_string(),
+                                            generation,
+                                        }).await;
                                     }
                                 }
                             }

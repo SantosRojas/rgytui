@@ -16,6 +16,10 @@ impl App {
     }
 
     pub(crate) fn queue_play(&mut self, song: Song) {
+        // New play generation: background tasks spawned from this pending play
+        // carry this counter, so events from any earlier task are recognized
+        // as stale and dropped.
+        self.play_generation += 1;
         self.ui.player.current_song = Some(song.clone());
         self.pending_play = Some(song);
     }

@@ -42,6 +42,11 @@ pub struct App {
     event_rx: mpsc::Receiver<AppEvent>,
     cancel_token: CancellationToken,
     pending_play: Option<Song>,
+    /// Monotonic counter bumped on every `queue_play`. Background playback
+    /// tasks carry the generation they were spawned under; events from older
+    /// generations are dropped so a leftover task can never start playback
+    /// over a newer selection (e.g. after a rapid double mode toggle).
+    play_generation: u64,
     last_search: Option<Instant>,
     last_click: Option<(Instant, u16, u16)>,
     download_semaphore: Arc<Semaphore>,
@@ -183,6 +188,7 @@ impl App {
             event_rx,
             cancel_token: CancellationToken::new(),
             pending_play: None,
+            play_generation: 0,
             last_search: None,
             last_click: None,
             download_semaphore: Arc::new(Semaphore::new(3)),
@@ -921,7 +927,11 @@ mod tests {
         };
         app.ui.player.current_song = Some(song);
 
-        app.handle_event(AppEvent::AudioDownloadError("Download failed".into())).await;
+        app.handle_event(AppEvent::AudioDownloadError {
+            message: "Download failed".into(),
+            generation: 0,
+        })
+        .await;
         assert!(app.ui.player.current_song.is_none(), "current_song should be cleared after download error");
     }
 
@@ -1716,6 +1726,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_toggle_failure_invalidates_in_flight_play_and_unblocks_replay() {
+        // Regression for the failed Audio->Video toggle (mpv missing) while an
+        // audio download is still in flight. The failure must clear the stale
+        // current_song AND loading_status and bump play_generation so the
+        // in-flight task's AudioReady (old generation) is dropped by the
+        // generation guard instead of being discarded by the song guard after
+        // leaving loading_status stuck.
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.player.current_song = Some(song(1));
+        app.ui.player.loading_status = Some("loading".into());
+        app.play_generation = 1; // in-flight audio task generation
+
+        app.on_toggle_failure();
+
+        assert!(
+            app.ui.player.current_song.is_none(),
+            "failed toggle must clear current_song so the song can be re-selected"
+        );
+        assert!(
+            app.ui.player.loading_status.is_none(),
+            "failed toggle must clear loading_status so the UI is not stuck"
+        );
+        assert_eq!(
+            app.play_generation, 2,
+            "failed toggle must bump play_generation to invalidate in-flight task events"
+        );
+    }
+
+    #[tokio::test]
     async fn test_stale_audio_ready_in_video_mode_is_dropped() {
         let mut app = match build_test_app_with_mode(AudioMode::Video).await {
             Some(a) => a,
@@ -1725,10 +1767,12 @@ mod tests {
         app.ui.player.loading_status = Some("loading".into());
 
         // AudioReady arrives while mode is Video — stale (leftover task from a
-        // mode toggle). It must not reach the audio backend.
+        // mode toggle). It must not reach the audio backend. Generation matches
+        // (0), so the mode guard is what drops it.
         app.handle_event(AppEvent::AudioReady {
             song: song(1),
             data: vec![1, 2, 3],
+            generation: 0,
         })
         .await;
 
@@ -1738,6 +1782,11 @@ mod tests {
             app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
             Some("id-1"),
             "stale event must not clear the current song"
+        );
+        assert_eq!(
+            app.ui.active_notifications().count(),
+            0,
+            "stale event must not start playback"
         );
     }
 
@@ -1753,6 +1802,7 @@ mod tests {
         app.handle_event(AppEvent::AudioReady {
             song: song(1),
             data: vec![1, 2, 3],
+            generation: 0,
         })
         .await;
 
@@ -1774,8 +1824,11 @@ mod tests {
         // Old audio-mode task failed AFTER the toggle to Video: the error is
         // stale and must NOT clear the current song (the fresh video task is
         // still running and its VideoStreamReady must be honored).
-        app.handle_event(AppEvent::AudioDownloadError("Download failed".into()))
-            .await;
+        app.handle_event(AppEvent::AudioDownloadError {
+            message: "Download failed".into(),
+            generation: 0,
+        })
+        .await;
 
         assert_eq!(
             app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
@@ -1793,12 +1846,79 @@ mod tests {
         app.ui.player.current_song = Some(song(1));
 
         // Old video-mode stream task failed AFTER the toggle to Audio: stale.
-        app.handle_event(AppEvent::PlaybackError("Stream failed".into())).await;
+        app.handle_event(AppEvent::PlaybackError {
+            message: "Stream failed".into(),
+            generation: 0,
+        })
+        .await;
 
         assert_eq!(
             app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
             Some("id-1"),
             "stale playback error must not clear current_song"
+        );
+    }
+
+    // ── Generation guard (R3-1): double-toggle race ─────────────────────────
+
+    #[tokio::test]
+    async fn test_stale_error_from_old_generation_is_dropped_even_when_mode_matches() {
+        // Scenario: user toggles Video -> Audio -> Video (back to Video). The
+        // first Video task (generation 0) is still resolving; each toggle
+        // re-queues the same song and bumps play_generation. When the OLD
+        // task's PlaybackError arrives, mode AND song match the fresh playback
+        // (generation 2), so only the generation guard can drop it. Honoring
+        // it would clear current_song and abort the fresh video stream.
+        let mut app = match build_test_app_with_mode(AudioMode::Video).await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.player.current_song = Some(song(1));
+        app.play_generation = 2; // after Video -> Audio -> Video
+
+        app.handle_event(AppEvent::PlaybackError {
+            message: "Stream failed".into(),
+            generation: 0, // the FIRST video task, superseded twice
+        })
+        .await;
+
+        assert_eq!(
+            app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
+            Some("id-1"),
+            "error from an old generation must not clear current_song"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stale_audio_ready_from_old_generation_is_dropped_even_when_mode_and_song_match() {
+        // Scenario: user toggles Audio -> Video -> Audio (back to Audio). The
+        // first Audio task (generation 0) finishes AFTER the second toggle.
+        // Mode and song both match the fresh playback (generation 2), so only
+        // the generation guard can drop it. Honoring it would push notif_playing
+        // and start the old task's bytes over the fresh audio playback.
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.player.current_song = Some(song(1));
+        app.play_generation = 2; // after Audio -> Video -> Audio
+
+        app.handle_event(AppEvent::AudioReady {
+            song: song(1),
+            data: vec![1, 2, 3],
+            generation: 0, // the FIRST audio task, superseded twice
+        })
+        .await;
+
+        assert_eq!(
+            app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
+            Some("id-1"),
+            "audio ready from an old generation must not clear current_song"
+        );
+        assert_eq!(
+            app.ui.active_notifications().count(),
+            0,
+            "audio ready from an old generation must not start playback"
         );
     }
 }
