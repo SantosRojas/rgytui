@@ -118,6 +118,10 @@ impl PlaybackUseCase {
     pub fn check_health(&mut self) -> Result<(), DomainError> {
         self.audio.check_health()
     }
+
+    pub fn take_route_change_notification(&mut self) -> bool {
+        self.audio.take_route_change_notification()
+    }
 }
 
 #[cfg(test)]
@@ -235,6 +239,64 @@ mod tests {
         }
     }
 
+    /// Audio mock whose backend reports a route change: `check_health` is
+    /// healthy (the pause happened internally) and `take_route_change_notification`
+    /// yields true exactly once (the flag is consumed by the first call, like the
+    /// real backend).
+    struct RouteChangeMockAudio {
+        notified: bool,
+    }
+
+    impl RouteChangeMockAudio {
+        fn new() -> Self {
+            Self { notified: true }
+        }
+    }
+
+    impl AudioPlaybackPort for RouteChangeMockAudio {
+        fn play_file(&mut self, _path: &Path, _song: Song) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn play_bytes(&mut self, _data: Vec<u8>, _song: Song) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn pause(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn resume(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn stop(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn set_volume(&mut self, _vol: f32) {}
+        fn volume(&self) -> f32 {
+            0.8
+        }
+        fn state(&self) -> PlayerState {
+            PlayerState::Paused
+        }
+        fn current_position(&self) -> f64 {
+            42.5
+        }
+        fn current_duration(&self) -> f64 {
+            0.0
+        }
+        fn is_sink_empty(&self) -> bool {
+            true
+        }
+        fn get_spectrum(&self) -> SpectrumFrame {
+            SpectrumFrame::default()
+        }
+        fn set_spectrum_enabled(&mut self, _enabled: bool) {}
+        fn check_health(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn take_route_change_notification(&mut self) -> bool {
+            std::mem::take(&mut self.notified)
+        }
+    }
+
     fn build_playback(audio: Box<dyn AudioPlaybackPort>) -> PlaybackUseCase {
         PlaybackUseCase::new(Arc::new(MockDownloader), audio, MpvAdapter::new(), AudioMode::Audio)
     }
@@ -256,6 +318,19 @@ mod tests {
             matches!(err, DomainError::Audio(_)),
             "check_health should propagate the backend error, got {:?}",
             err
+        );
+    }
+
+    #[test]
+    fn take_route_change_notification_returns_true_once() {
+        let mut playback = build_playback(Box::new(RouteChangeMockAudio::new()));
+        assert!(
+            playback.take_route_change_notification(),
+            "a pending route change should trigger the notification flag"
+        );
+        assert!(
+            !playback.take_route_change_notification(),
+            "the notification flag is consumed on the first call"
         );
     }
 

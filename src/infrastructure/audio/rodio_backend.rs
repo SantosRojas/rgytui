@@ -66,6 +66,16 @@ pub struct RodioAdapter {
     sink_device_id: Option<String>,
     /// Timestamp of the last output-device identity check (rate limiting).
     last_device_check: Option<std::time::Instant>,
+    /// Pending route change (Jack 3.5mm <-> Bluetooth): position (seconds) at
+    /// which playback was paused on the freshly reopened sink. Set by
+    /// `pause_for_route_change`; consumed only by `resume()` (rebuild from
+    /// retained bytes).
+    pending_route_change: Option<f64>,
+    /// One-shot flag: a route change just paused playback and the app must
+    /// surface a notification. Set by `pause_for_route_change`; consumed by
+    /// the app via `take_route_change_notification`. Independent from
+    /// `pending_route_change`, which only `resume()` consumes.
+    route_change_notified: bool,
     /// Audio bytes of the currently playing song, retained so playback can be
     /// rebuilt transparently if the audio device is lost mid-play/pause.
     /// Dropped on stop(); bounded by MAX_RETAINED_BYTES.
@@ -98,6 +108,8 @@ impl RodioAdapter {
             last_pos_moved: None,
             sink_device_id: device_id,
             last_device_check: None,
+            pending_route_change: None,
+            route_change_notified: false,
             retained_bytes: None,
         })
     }
@@ -175,6 +187,10 @@ impl RodioAdapter {
         self.last_pos = 0.0;
         self.last_pos_moved = None;
         self.last_health_check = None;
+        // A fresh play cycle supersedes any pending route-change resume; the
+        // user explicitly asked for a new source, so there is nothing to pause-for.
+        self.pending_route_change = None;
+        self.route_change_notified = false;
 
         self.player.stop();
 
@@ -343,6 +359,29 @@ impl RodioAdapter {
     }
 
     pub fn resume(&mut self) -> Result<(), DomainError> {
+        if let Some(seek_to) = self.pending_route_change.take() {
+            // Route change paused us on a freshly reopened sink: rebuild the
+            // track from retained bytes so resume continues where it left off.
+            if let Some(data) = self.retained_bytes.take() {
+                match self.rebuild_after_reopen(&data, seek_to) {
+                    Ok(()) => {
+                        self.retained_bytes = Some(data);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        self.reset_health_state();
+                        return Err(DomainError::Audio(format!(
+                            "Audio device lost. Playback stopped. ({e})"
+                        )));
+                    }
+                }
+            }
+            // No retained bytes (song > cap or file playback): cannot rebuild.
+            self.reset_health_state();
+            return Err(DomainError::Audio(
+                "Audio device lost. Playback stopped.".into(),
+            ));
+        }
         self.player.play();
         self.shared_mut().state = PlayerState::Playing;
         // Start the watchdog tracking from scratch for this play cycle.
@@ -357,6 +396,9 @@ impl RodioAdapter {
         self.shared_mut().state = PlayerState::Stopped;
         // Playback ended/cleared: nothing left to recover, so release the bytes.
         self.retained_bytes = None;
+        // A stop supersedes any pending route-change resume.
+        self.pending_route_change = None;
+        self.route_change_notified = false;
         // Stop tracking a stall: a fresh play cycle starts from zero.
         self.last_pos = 0.0;
         self.last_pos_moved = None;
@@ -392,6 +434,28 @@ impl RodioAdapter {
 
     pub fn set_spectrum_enabled(&mut self, enabled: bool) {
         self.spectrum_enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Route change (Jack <-> Bluetooth): switch the sink to the live default
+    /// device but DO NOT auto-resume — a fortuitous Bluetooth disconnect must
+    /// never spill sound through the laptop speakers. Playback is left Paused
+    /// with `pending_route_change` set so the app can surface a notification
+    /// and the user resumes explicitly. Returns Ok after the reopen; on reopen
+    /// failure the state is reset and the error propagates (unrecoverable).
+    fn pause_for_route_change(&mut self, seek_to: f64) -> Result<(), DomainError> {
+        if let Err(e) = self.reopen_backend() {
+            self.reset_health_state();
+            return Err(DomainError::Audio(format!(
+                "Audio device lost. Playback stopped. ({e})"
+            )));
+        }
+        self.shared_mut().state = PlayerState::Paused;
+        self.pending_route_change = Some(seek_to);
+        self.route_change_notified = true;
+        self.last_pos = seek_to;
+        self.last_pos_moved = None;
+        self.last_health_check = None;
+        Ok(())
     }
 
     /// Reopen the backend and rebuild playback from retained bytes at
@@ -498,6 +562,10 @@ impl AudioPlaybackPort for RodioAdapter {
         self.set_spectrum_enabled(enabled);
     }
 
+    fn take_route_change_notification(&mut self) -> bool {
+        std::mem::take(&mut self.route_change_notified)
+    }
+
     /// Watchdog: detect a dead/stalled audio backend (e.g. the WASAPI/cpal
     /// device dying after a long pause, or a Jack/Bluetooth route change) and
     /// recover by reopening the backend.
@@ -521,18 +589,18 @@ impl AudioPlaybackPort for RodioAdapter {
         // Route-change detection: a switched default output device (Jack 3.5mm
         // <-> Bluetooth) invalidates the current sink even when the stream
         // keeps pumping silence, which the frozen-position heuristic below
-        // would never catch (position keeps moving). Rebuild transparently
-        // from the retained bytes at the last position. Seek target = the live
-        // position, because after a paused route-switch + resume `last_pos` is
-        // 0 (resume() zeroes it) and the live get_pos() is the true position;
-        // max() guards a dead sink reporting 0.
+        // would never catch (position keeps moving). Unlike the stall watchdog
+        // (which recovers transparently), a route change switches the sink to
+        // the live default and PAUSES: a fortuitous Bluetooth disconnect must
+        // never spill sound through the laptop speakers, so the user resumes
+        // explicitly. Seek target = the live position, because after a paused
+        // route-switch + resume `last_pos` is 0 (resume() zeroes it) and the
+        // live get_pos() is the true position; max() guards a dead sink
+        // reporting 0.
         let sink_empty = self.player.empty();
         if Self::should_check_device(PlayerState::Playing, sink_empty) && self.device_changed() {
             let seek_to = self.player.get_pos().as_secs_f64().max(self.last_pos);
-            return self.recover_backend(
-                seek_to,
-                "Audio output device changed (Jack/Bluetooth route switch)",
-            );
+            return self.pause_for_route_change(seek_to);
         }
 
         if sink_empty {

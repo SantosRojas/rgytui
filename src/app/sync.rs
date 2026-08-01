@@ -19,6 +19,17 @@ impl App {
             return;
         }
 
+        // Output device switched (e.g. Jack <-> Bluetooth): the backend paused
+        // playback on the live sink; surface a notification and wait for the user
+        // to resume explicitly (no auto-advance while paused).
+        if self.playback.take_route_change_notification() {
+            self.ui.push_notification(
+                self.ui.tr("notif_device_changed"),
+                NotificationLevel::Info,
+            );
+            return;
+        }
+
         if self.playback.state() == PlayerState::Playing && self.playback.is_sink_empty() {
             if let Err(e) = self.playback.stop() {
                 tracing::warn!("Failed to stop on auto-advance: {}", e);

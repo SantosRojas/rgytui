@@ -38,6 +38,15 @@ pub trait AudioPlaybackPort: Send {
     fn check_health(&mut self) -> Result<(), DomainError> {
         Ok(())
     }
+
+    /// If the output device changed since the last health check, returns true
+    /// exactly once and clears the flag. The backend has already switched to
+    /// the live sink and paused; the caller should surface a notification and
+    /// wait for explicit resume. The resume position is consumed internally by
+    /// `resume()`, so this signal is purely the notification trigger.
+    fn take_route_change_notification(&mut self) -> bool {
+        false
+    }
 }
 
 /// Port for downloading audio from URLs.

@@ -90,6 +90,7 @@
   "notif_paused": "⏸ Paused",
   "notif_resumed": "▶ Resumed",
   "notif_stopped": "⏹ Stopped",
+  "notif_device_changed": "Audio output changed. Paused — press play to continue",
   "notif_volume": "Volume: {:.0}%",
   "notif_theme": "Theme: {}",
   "notif_mode": "Mode: {}",
