@@ -453,24 +453,33 @@ impl RodioAdapter {
                 "Audio device lost. Playback stopped. ({e})"
             )));
         }
-        if self.retained_bytes.is_some() {
-            self.shared_mut().state = PlayerState::Paused;
-            self.pending_route_change = Some(seek_to);
-            self.route_change_notice = Some(RouteChangeNotice::ResumeAvailable);
-            self.last_pos = seek_to;
-            self.last_pos_moved = None;
-            self.last_health_check = None;
-        } else {
-            // Source not retained: resume() cannot rebuild the track, so never
-            // set a resume promise that cannot be fulfilled.
-            self.shared_mut().state = PlayerState::Stopped;
-            self.pending_route_change = None;
-            self.route_change_notice = Some(RouteChangeNotice::RestartRequired);
-            self.last_pos = 0.0;
-            self.last_pos_moved = None;
-            self.last_health_check = None;
-        }
+        let (state, resume_pos, notice) =
+            Self::route_change_plan(self.retained_bytes.is_some(), seek_to);
+        self.shared_mut().state = state;
+        self.pending_route_change = resume_pos;
+        self.route_change_notice = Some(notice);
+        self.last_pos = resume_pos.unwrap_or(0.0);
+        self.last_pos_moved = None;
+        self.last_health_check = None;
         Ok(())
+    }
+
+    /// Pure decision for what a route change does to the current playback:
+    /// when the song's bytes are retained, playback is left Paused with a
+    /// resume position (ResumeAvailable — the user can continue from here);
+    /// otherwise the track cannot be rebuilt, so playback is Stopped with NO
+    /// resume promise (RestartRequired — the user must play the song again).
+    /// Kept as a pure function so the retained/non-retained branch decision is
+    /// testable without a real audio device.
+    fn route_change_plan(
+        retained: bool,
+        seek_to: f64,
+    ) -> (PlayerState, Option<f64>, RouteChangeNotice) {
+        if retained {
+            (PlayerState::Paused, Some(seek_to), RouteChangeNotice::ResumeAvailable)
+        } else {
+            (PlayerState::Stopped, None, RouteChangeNotice::RestartRequired)
+        }
     }
 
     /// Reopen the backend and rebuild playback from retained bytes at
@@ -681,7 +690,36 @@ impl AudioPlaybackPort for NoopAudioAdapter {
 
 #[cfg(test)]
 mod tests {
-    use super::RodioAdapter;
+    use super::*;
+
+    #[test]
+    fn route_change_plan_retained_bytes_pauses_with_resume_position() {
+        // Song bytes retained: playback pauses and keeps the resume position,
+        // and the notice promises a recoverable resume.
+        let (state, resume_pos, notice) = RodioAdapter::route_change_plan(true, 42.5);
+        assert_eq!(state, PlayerState::Paused);
+        assert_eq!(
+            resume_pos,
+            Some(42.5),
+            "retained bytes must preserve the resume position"
+        );
+        assert_eq!(notice, RouteChangeNotice::ResumeAvailable);
+    }
+
+    #[test]
+    fn route_change_plan_without_retained_bytes_stops_without_resume() {
+        // No retained bytes (song > cap or file playback): playback stops with
+        // NO resume promise — the notice must not advertise a recoverable
+        // resume that resume() could never fulfill.
+        let (state, resume_pos, notice) = RodioAdapter::route_change_plan(false, 42.5);
+        assert_eq!(state, PlayerState::Stopped);
+        assert_eq!(
+            resume_pos,
+            None,
+            "no retained bytes means no resume position is kept"
+        );
+        assert_eq!(notice, RouteChangeNotice::RestartRequired);
+    }
 
     #[test]
     fn should_retain_respects_cap() {

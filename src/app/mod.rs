@@ -537,6 +537,7 @@ mod tests {
     use crate::application::playlist::PlaylistUseCase;
     use crate::application::ports::{AudioPlaybackPort, ConfigPort, DownloaderPort, MediaSearchPort};
     use crate::application::search::SearchUseCase;
+    use crate::domain::error::DomainError;
     use crate::domain::media::Song;
     use crate::infrastructure::audio::mpv_backend::MpvAdapter;
     use crate::infrastructure::audio::rodio_backend::RodioAdapter;
@@ -648,6 +649,124 @@ mod tests {
 
     fn songs(count: u32) -> Vec<Song> {
         (0..count).map(song).collect()
+    }
+
+    /// Audio mock whose `take_route_change_notice` yields a fixed notice
+    /// exactly once (consumed by the first call, like the real backend) and
+    /// whose health check reports a healthy backend.
+    struct NoticeMockAudio {
+        notice: Option<RouteChangeNotice>,
+    }
+
+    impl NoticeMockAudio {
+        fn new(notice: RouteChangeNotice) -> Self {
+            Self { notice: Some(notice) }
+        }
+    }
+
+    impl AudioPlaybackPort for NoticeMockAudio {
+        fn play_file(&mut self, _path: &std::path::Path, _song: Song) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn play_bytes(&mut self, _data: Vec<u8>, _song: Song) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn pause(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn resume(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn stop(&mut self) -> Result<(), DomainError> {
+            Ok(())
+        }
+        fn set_volume(&mut self, _vol: f32) {}
+        fn volume(&self) -> f32 {
+            0.8
+        }
+        fn state(&self) -> PlayerState {
+            PlayerState::Paused
+        }
+        fn current_position(&self) -> f64 {
+            0.0
+        }
+        fn current_duration(&self) -> f64 {
+            0.0
+        }
+        fn is_sink_empty(&self) -> bool {
+            true
+        }
+        fn get_spectrum(&self) -> crate::shared::spectrum::SpectrumFrame {
+            crate::shared::spectrum::SpectrumFrame::default()
+        }
+        fn set_spectrum_enabled(&mut self, _enabled: bool) {}
+        fn take_route_change_notice(&mut self) -> Option<RouteChangeNotice> {
+            self.notice.take()
+        }
+    }
+
+    /// Build a test App with a fully mocked audio backend (never skips: no
+    /// audio device needed, unlike [`build_test_app`]).
+    async fn build_test_app_with_audio(audio: Box<dyn AudioPlaybackPort>) -> App {
+        let mpv = MpvAdapter::new();
+        let ytdlp = YtDlpAdapter::new();
+        let downloader: Arc<dyn DownloaderPort> = Arc::new(ytdlp.clone());
+        let search_port: Arc<dyn MediaSearchPort> = Arc::new(ytdlp);
+        let playback = PlaybackUseCase::new(downloader, audio, mpv, AudioMode::Audio);
+        let search = SearchUseCase::new(search_port);
+        let playlist = PlaylistUseCase::new();
+        let config: Box<dyn ConfigPort> = Box::new(crate::application::ports::MockConfig {
+            settings: AppSettings::default(),
+        });
+        let i18n: Arc<dyn I18nPort> = Arc::new(Translations::load("es"));
+        App::new(playback, search, playlist, config, i18n).await
+    }
+
+    // ── update_progress route-change notice (R3-2) ──────────────────────
+
+    #[tokio::test]
+    async fn test_route_change_restart_required_clears_song_and_notifies_stopped() {
+        let mut app = build_test_app_with_audio(Box::new(NoticeMockAudio::new(
+            RouteChangeNotice::RestartRequired,
+        )))
+        .await;
+        app.ui.player.current_song = Some(song(1));
+
+        app.update_progress().await;
+
+        assert!(
+            app.ui.player.current_song.is_none(),
+            "RestartRequired must clear current_song so the song can be re-played"
+        );
+        assert!(
+            app.ui
+                .active_notifications()
+                .any(|n| n.message == app.ui.tr("notif_device_changed_stopped")),
+            "RestartRequired must surface the stopped notification"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_route_change_resume_available_keeps_song_and_notifies_changed() {
+        let mut app = build_test_app_with_audio(Box::new(NoticeMockAudio::new(
+            RouteChangeNotice::ResumeAvailable,
+        )))
+        .await;
+        app.ui.player.current_song = Some(song(1));
+
+        app.update_progress().await;
+
+        assert_eq!(
+            app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
+            Some("id-1"),
+            "ResumeAvailable must NOT clear current_song"
+        );
+        assert!(
+            app.ui
+                .active_notifications()
+                .any(|n| n.message == app.ui.tr("notif_device_changed")),
+            "ResumeAvailable must surface the device-changed notification"
+        );
     }
 
     // ── update_progress guard (Task 1.3) ────────────────────────────

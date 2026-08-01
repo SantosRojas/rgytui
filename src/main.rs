@@ -7,6 +7,7 @@ mod shared;
 mod uninstall;
 mod update;
 
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -101,6 +102,13 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 }
 
+/// Name of the log file inside the config dir.
+const LOG_FILE_NAME: &str = "rgytui.log";
+/// Name the log file is rotated to when it exceeds [`LOG_MAX_BYTES`].
+const LOG_OLD_FILE_NAME: &str = "rgytui.log.old";
+/// Cap for the log file; beyond this it is rotated so it cannot grow unboundedly.
+const LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
+
 /// Open (creating if needed) the log file the tracing subscriber writes to.
 /// Logs live in the user config dir next to settings.json, so the TUI's
 /// stdout stays pristine. On any failure fall back to the null device:
@@ -117,16 +125,141 @@ fn open_log_writer() -> Box<dyn std::io::Write + Send + Sync> {
     let Some(config_dir) = config_dir else {
         return Box::new(std::io::sink());
     };
-    if let Err(e) = std::fs::create_dir_all(&config_dir) {
-        eprintln!("Warning: cannot create log directory {}: {e}", config_dir.display());
+    open_log_writer_in(&config_dir)
+}
+
+/// Open (creating if needed) the log file `rgytui.log` in `dir`, rotating a
+/// too-large existing log to `rgytui.log.old` first. Returns a writer; on any
+/// failure falls back to the null device so logging never crashes startup.
+fn open_log_writer_in(dir: &Path) -> Box<dyn std::io::Write + Send + Sync> {
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        eprintln!("Warning: cannot create log directory {}: {e}", dir.display());
         return Box::new(std::io::sink());
     }
-    let path = config_dir.join("rgytui.log");
+    let path = dir.join(LOG_FILE_NAME);
+    rotate_if_needed(&path);
     match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
         Ok(file) => Box::new(file),
         Err(e) => {
             eprintln!("Warning: cannot open log file {}: {e}", path.display());
             Box::new(std::io::sink())
         }
+    }
+}
+
+/// Rotate `path` to `rgytui.log.old` when it exceeds [`LOG_MAX_BYTES`], so the
+/// log cannot grow unboundedly. Best-effort: never fails — a failed rotation
+/// just leaves the oversized log in place (the writer appends to it as before).
+fn rotate_if_needed(path: &Path) {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return; // no existing log yet
+    };
+    if meta.len() < LOG_MAX_BYTES {
+        return;
+    }
+    let old = path.with_file_name(LOG_OLD_FILE_NAME);
+    let _ = std::fs::remove_file(&old); // rename cannot overwrite an existing file on Windows
+    if let Err(e) = std::fs::rename(path, &old) {
+        eprintln!("Warning: cannot rotate log file {}: {e}", path.display());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn open_log_writer_in_writes_to_expected_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut writer = open_log_writer_in(dir.path());
+        writer.write_all(b"hello from the log\n").unwrap();
+        drop(writer); // flush + close before reading back
+
+        let content = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
+        assert!(content.contains("hello from the log"));
+    }
+
+    #[test]
+    fn open_log_writer_in_appends_to_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(LOG_FILE_NAME), "first line\n").unwrap();
+
+        let mut writer = open_log_writer_in(dir.path());
+        writer.write_all(b"second line\n").unwrap();
+        drop(writer);
+
+        let content = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
+        assert!(content.starts_with("first line\n"), "must append, not truncate");
+        assert!(content.ends_with("second line\n"));
+    }
+
+    #[test]
+    fn open_log_writer_in_rotates_oversized_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(LOG_FILE_NAME);
+        std::fs::write(&path, vec![0u8; (LOG_MAX_BYTES + 1) as usize]).unwrap();
+        let old = dir.path().join(LOG_OLD_FILE_NAME);
+        assert!(!old.exists(), "no .old before rotation");
+
+        let mut writer = open_log_writer_in(dir.path());
+        writer.write_all(b"fresh").unwrap();
+        drop(writer);
+
+        assert!(old.exists(), "oversized log should be rotated to .old");
+        assert_eq!(
+            std::fs::metadata(&old).unwrap().len(),
+            LOG_MAX_BYTES + 1,
+            ".old must hold the rotated bytes"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "fresh",
+            "a fresh log file must be created for new writes"
+        );
+    }
+
+    #[test]
+    fn open_log_writer_in_keeps_undersized_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(LOG_FILE_NAME);
+        std::fs::write(&path, b"small").unwrap();
+        let old = dir.path().join(LOG_OLD_FILE_NAME);
+
+        open_log_writer_in(dir.path());
+
+        assert!(path.exists(), "undersized log must stay in place");
+        assert!(!old.exists(), "undersized log must NOT be rotated");
+    }
+
+    #[test]
+    fn open_log_writer_in_rotation_overwrites_existing_old_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(LOG_FILE_NAME);
+        let old = dir.path().join(LOG_OLD_FILE_NAME);
+        std::fs::write(&path, vec![0u8; (LOG_MAX_BYTES + 1) as usize]).unwrap();
+        std::fs::write(&old, b"stale").unwrap();
+
+        open_log_writer_in(dir.path());
+
+        assert_eq!(
+            std::fs::metadata(&old).unwrap().len(),
+            LOG_MAX_BYTES + 1,
+            "a stale .old must be overwritten by the rotation"
+        );
+    }
+
+    #[test]
+    fn open_log_writer_in_falls_back_to_sink_when_dir_creation_fails() {
+        // A path whose parent is a regular FILE cannot be created as a
+        // directory, so create_dir_all fails and the writer falls back to the
+        // null device (write must still succeed silently).
+        let base = tempfile::tempdir().unwrap();
+        let blocker = base.path().join("blocker");
+        std::fs::write(&blocker, b"x").unwrap();
+        let dir = blocker.join("nested");
+
+        let mut writer = open_log_writer_in(&dir);
+        assert!(writer.write_all(b"data").is_ok());
     }
 }

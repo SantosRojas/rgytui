@@ -231,20 +231,20 @@ fn install_binary(
 ) -> Result<(), anyhow::Error> {
     if let Err(e) = std::fs::write(dst, binary_bytes) {
         if cfg!(windows) {
-            eprintln!(":: Direct write failed ({e}), scheduling delayed replace...");
+            tracing::warn!("Direct write failed ({e}), scheduling delayed replace...");
             // Write to a staging file first, then schedule delayed copy
             let staging = dst.with_extension("new.exe");
             std::fs::write(&staging, binary_bytes)?;
             schedule_delayed_replace(&staging, dst)?;
-            eprintln!("✓ Downloaded {version}. Restart rgytui to use it.");
+            tracing::info!("Downloaded {version}. Restart rgytui to use it.");
         } else {
             anyhow::bail!("Failed to install binary to {}: {e}", dst.display());
         }
     } else {
         #[cfg(not(windows))]
         make_executable(dst)?;
-        eprintln!("✓ rgytui updated to {version}.");
-        eprintln!("  Next launch will use the new version.");
+        tracing::info!("rgytui updated to {version}.");
+        tracing::info!("Next launch will use the new version.");
     }
     Ok(())
 }
