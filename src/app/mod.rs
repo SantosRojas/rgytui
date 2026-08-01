@@ -622,6 +622,12 @@ mod tests {
     /// Like [`build_test_app`], but with a specific initial playback mode.
     async fn build_test_app_with_mode(mode: AudioMode) -> Option<App> {
         let audio: Box<dyn AudioPlaybackPort> = Box::new(RodioAdapter::new().ok()?);
+        Some(build_test_app_from(audio, mode).await)
+    }
+
+    /// Wire a test App from the given audio backend and playback mode; shared
+    /// by the real-device and mock-audio builders below.
+    async fn build_test_app_from(audio: Box<dyn AudioPlaybackPort>, mode: AudioMode) -> App {
         let mpv = MpvAdapter::new();
         let ytdlp = YtDlpAdapter::new();
         let downloader: Arc<dyn DownloaderPort> = Arc::new(ytdlp.clone());
@@ -633,7 +639,7 @@ mod tests {
             settings: AppSettings::default(),
         });
         let i18n: Arc<dyn I18nPort> = Arc::new(Translations::load("es"));
-        Some(App::new(playback, search, playlist, config, i18n).await)
+        App::new(playback, search, playlist, config, i18n).await
     }
 
     fn song(id: u32) -> Song {
@@ -707,26 +713,15 @@ mod tests {
 
     /// Build a test App with a fully mocked audio backend (never skips: no
     /// audio device needed, unlike [`build_test_app`]).
-    async fn build_test_app_with_audio(audio: Box<dyn AudioPlaybackPort>) -> App {
-        let mpv = MpvAdapter::new();
-        let ytdlp = YtDlpAdapter::new();
-        let downloader: Arc<dyn DownloaderPort> = Arc::new(ytdlp.clone());
-        let search_port: Arc<dyn MediaSearchPort> = Arc::new(ytdlp);
-        let playback = PlaybackUseCase::new(downloader, audio, mpv, AudioMode::Audio);
-        let search = SearchUseCase::new(search_port);
-        let playlist = PlaylistUseCase::new();
-        let config: Box<dyn ConfigPort> = Box::new(crate::application::ports::MockConfig {
-            settings: AppSettings::default(),
-        });
-        let i18n: Arc<dyn I18nPort> = Arc::new(Translations::load("es"));
-        App::new(playback, search, playlist, config, i18n).await
+    async fn build_test_app_with_audio_mock(audio: Box<dyn AudioPlaybackPort>) -> App {
+        build_test_app_from(audio, AudioMode::Audio).await
     }
 
     // ── update_progress route-change notice (R3-2) ──────────────────────
 
     #[tokio::test]
     async fn test_route_change_restart_required_clears_song_and_notifies_stopped() {
-        let mut app = build_test_app_with_audio(Box::new(NoticeMockAudio::new(
+        let mut app = build_test_app_with_audio_mock(Box::new(NoticeMockAudio::new(
             RouteChangeNotice::RestartRequired,
         )))
         .await;
@@ -738,17 +733,20 @@ mod tests {
             app.ui.player.current_song.is_none(),
             "RestartRequired must clear current_song so the song can be re-played"
         );
-        assert!(
+        let expected = app.ui.tr("notif_device_changed_stopped");
+        assert_eq!(
             app.ui
                 .active_notifications()
-                .any(|n| n.message == app.ui.tr("notif_device_changed_stopped")),
-            "RestartRequired must surface the stopped notification"
+                .filter(|n| n.message == expected)
+                .count(),
+            1,
+            "RestartRequired must surface the stopped notification exactly once"
         );
     }
 
     #[tokio::test]
     async fn test_route_change_resume_available_keeps_song_and_notifies_changed() {
-        let mut app = build_test_app_with_audio(Box::new(NoticeMockAudio::new(
+        let mut app = build_test_app_with_audio_mock(Box::new(NoticeMockAudio::new(
             RouteChangeNotice::ResumeAvailable,
         )))
         .await;
@@ -761,11 +759,14 @@ mod tests {
             Some("id-1"),
             "ResumeAvailable must NOT clear current_song"
         );
-        assert!(
+        let expected = app.ui.tr("notif_device_changed");
+        assert_eq!(
             app.ui
                 .active_notifications()
-                .any(|n| n.message == app.ui.tr("notif_device_changed")),
-            "ResumeAvailable must surface the device-changed notification"
+                .filter(|n| n.message == expected)
+                .count(),
+            1,
+            "ResumeAvailable must surface the device-changed notification exactly once"
         );
     }
 

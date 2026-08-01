@@ -7,7 +7,8 @@ mod shared;
 mod uninstall;
 mod update;
 
-use std::path::Path;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -106,6 +107,9 @@ async fn main() -> Result<(), anyhow::Error> {
 const LOG_FILE_NAME: &str = "rgytui.log";
 /// Name the log file is rotated to when it exceeds [`LOG_MAX_BYTES`].
 const LOG_OLD_FILE_NAME: &str = "rgytui.log.old";
+/// Temporary name the previous `.old` is parked under while a Windows rotation
+/// replaces it (rename cannot overwrite an existing file there).
+const LOG_OLD_PREV_FILE_NAME: &str = "rgytui.log.old.prev";
 /// Cap for the log file; beyond this it is rotated so it cannot grow unboundedly.
 const LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 
@@ -129,17 +133,20 @@ fn open_log_writer() -> Box<dyn std::io::Write + Send + Sync> {
 }
 
 /// Open (creating if needed) the log file `rgytui.log` in `dir`, rotating a
-/// too-large existing log to `rgytui.log.old` first. Returns a writer; on any
-/// failure falls back to the null device so logging never crashes startup.
+/// too-large existing log to `rgytui.log.old` first. Returns a writer that also
+/// rotates mid-session when the cap is exceeded; on any failure falls back to
+/// the null device so logging never crashes startup.
 fn open_log_writer_in(dir: &Path) -> Box<dyn std::io::Write + Send + Sync> {
     if let Err(e) = std::fs::create_dir_all(dir) {
         eprintln!("Warning: cannot create log directory {}: {e}", dir.display());
         return Box::new(std::io::sink());
     }
     let path = dir.join(LOG_FILE_NAME);
-    rotate_if_needed(&path);
-    match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-        Ok(file) => Box::new(file),
+    // Startup rotation is still useful: it produces the .old file even when the
+    // session never exceeds the cap again.
+    rotate_if_needed(&path, LOG_MAX_BYTES);
+    match RotatingLogWriter::open(path.clone()) {
+        Ok(writer) => Box::new(writer),
         Err(e) => {
             eprintln!("Warning: cannot open log file {}: {e}", path.display());
             Box::new(std::io::sink())
@@ -147,20 +154,120 @@ fn open_log_writer_in(dir: &Path) -> Box<dyn std::io::Write + Send + Sync> {
     }
 }
 
-/// Rotate `path` to `rgytui.log.old` when it exceeds [`LOG_MAX_BYTES`], so the
-/// log cannot grow unboundedly. Best-effort: never fails — a failed rotation
-/// just leaves the oversized log in place (the writer appends to it as before).
-fn rotate_if_needed(path: &Path) {
+/// Writer that rotates the active log file once [`LOG_MAX_BYTES`] have been
+/// written during a session, so a long-lived TUI cannot grow the log
+/// unboundedly. Best-effort: a failed rotation keeps appending to the current
+/// file — logging must never crash or lose the active session's log.
+struct RotatingLogWriter {
+    file: Box<dyn std::io::Write + Send + Sync>,
+    path: PathBuf,
+    written: u64,
+    max_bytes: u64,
+}
+
+impl RotatingLogWriter {
+    /// Open an append-only writer for `path` with the production cap.
+    fn open(path: PathBuf) -> std::io::Result<Self> {
+        Self::open_with_cap(path, LOG_MAX_BYTES)
+    }
+
+    /// Open an append-only writer for `path` with an explicit cap (tests use a
+    /// tiny cap so they stay fast).
+    fn open_with_cap(path: PathBuf, max_bytes: u64) -> std::io::Result<Self> {
+        let file = open_log_file(&path)?;
+        let written = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        Ok(Self {
+            file: Box::new(file),
+            path,
+            written,
+            max_bytes,
+        })
+    }
+
+    /// Rotate the active file through the shared rotation helper and reopen it
+    /// in append mode. The current handle is closed first so the rename is
+    /// allowed on Windows (open files are locked there). Best-effort: if the
+    /// rotation fails the oversized file stays in place and we keep appending
+    /// to it; if it cannot be reopened at all, writes fall back to the null
+    /// device. Either way logging never crashes.
+    fn rotate(&mut self) {
+        let _ = self.file.flush();
+        // Close the current handle before renaming (see the Windows note above).
+        self.file = Box::new(std::io::sink());
+        rotate_if_needed(&self.path, self.max_bytes);
+        match open_log_file(&self.path) {
+            Ok(file) => self.file = Box::new(file),
+            Err(e) => eprintln!(
+                "Warning: cannot reopen log file {} after rotation: {e}",
+                self.path.display()
+            ),
+        }
+        self.written = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
+    }
+}
+
+impl std::io::Write for RotatingLogWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.file.write(buf)?;
+        self.written += n as u64;
+        if self.written >= self.max_bytes {
+            self.rotate();
+        }
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
+    }
+}
+
+/// Open (creating if needed) `path` for appending, with a restrictive `0o600`
+/// mode on POSIX so the log file is never world-readable (Windows ignores the
+/// mode; the cfg gate keeps the OpenOptions building platform-neutral).
+fn open_log_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    opts.open(path)
+}
+
+/// Rotate `path` to `rgytui.log.old` when it exceeds `max_bytes`, so the log
+/// cannot grow unboundedly. Best-effort: never fails — a failed rotation just
+/// leaves the oversized log in place (the writer appends to it as before).
+fn rotate_if_needed(path: &Path, max_bytes: u64) {
     let Ok(meta) = std::fs::metadata(path) else {
         return; // no existing log yet
     };
-    if meta.len() < LOG_MAX_BYTES {
+    if meta.len() < max_bytes {
         return;
     }
     let old = path.with_file_name(LOG_OLD_FILE_NAME);
-    let _ = std::fs::remove_file(&old); // rename cannot overwrite an existing file on Windows
-    if let Err(e) = std::fs::rename(path, &old) {
-        eprintln!("Warning: cannot rotate log file {}: {e}", path.display());
+    #[cfg(unix)]
+    {
+        // rename(2) atomically replaces an existing .old, so no dance needed.
+        if let Err(e) = std::fs::rename(path, &old) {
+            eprintln!("Warning: cannot rotate log file {}: {e}", path.display());
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        // On Windows rename cannot overwrite an existing file, so park the
+        // previous .old aside first and restore it if the rotation itself
+        // fails. Best-effort: never panics, a failed rotation just leaves the
+        // oversized log in place.
+        let prev = path.with_file_name(LOG_OLD_PREV_FILE_NAME);
+        let _ = std::fs::remove_file(&prev); // drop a stale temp from a crash
+        let _ = std::fs::rename(&old, &prev);
+        if let Err(e) = std::fs::rename(path, &old) {
+            eprintln!("Warning: cannot rotate log file {}: {e}", path.display());
+            let _ = std::fs::rename(&prev, &old); // restore the parked .old
+        } else {
+            let _ = std::fs::remove_file(&prev); // success: drop the parked .old
+        }
     }
 }
 
@@ -261,5 +368,52 @@ mod tests {
 
         let mut writer = open_log_writer_in(&dir);
         assert!(writer.write_all(b"data").is_ok());
+    }
+
+    #[test]
+    fn rotating_writer_rotates_mid_session_past_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(LOG_FILE_NAME);
+        let old = dir.path().join(LOG_OLD_FILE_NAME);
+        let mut writer = RotatingLogWriter::open_with_cap(path.clone(), 8).unwrap();
+
+        writer.write_all(b"1234567").unwrap(); // below cap: no rotation yet
+        assert!(!old.exists(), "below the cap the file must not rotate");
+
+        writer.write_all(b"8").unwrap(); // exactly at cap: rotates
+        assert!(old.exists(), "at the cap the file must rotate");
+
+        writer.write_all(b"9").unwrap(); // continues into a fresh file
+        drop(writer);
+
+        assert_eq!(
+            std::fs::read_to_string(&old).unwrap(),
+            "12345678",
+            "the capped bytes must land in .old"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "9",
+            "post-rotation writes must land in the fresh file"
+        );
+    }
+
+    #[test]
+    fn rotating_writer_rotates_at_exact_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(LOG_FILE_NAME);
+        let old = dir.path().join(LOG_OLD_FILE_NAME);
+        let mut writer = RotatingLogWriter::open_with_cap(path.clone(), 4).unwrap();
+
+        writer.write_all(b"abcd").unwrap(); // exactly at cap
+        drop(writer);
+
+        assert!(old.exists(), "a file exactly at the cap must be rotated");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "abcd");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "",
+            "the fresh file must be empty after rotation"
+        );
     }
 }
