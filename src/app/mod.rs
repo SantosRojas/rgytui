@@ -1921,4 +1921,95 @@ mod tests {
             "audio ready from an old generation must not start playback"
         );
     }
+
+    #[tokio::test]
+    async fn test_stale_video_stream_ready_from_old_generation_is_dropped_even_when_mode_and_song_match() {
+        // Scenario: user toggles Video -> Audio -> Video (back to Video). The
+        // first Video task (generation 0) resolves AFTER the second toggle.
+        // Mode and song both match the fresh playback (generation 2), so only
+        // the generation guard can drop it. It must not spawn mpv NOR clear
+        // the fresh play's loading indicator (the clear happens after the
+        // guards — otherwise a stale event wipes the fresh spinner).
+        let mut app = match build_test_app_with_mode(AudioMode::Video).await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.player.current_song = Some(song(1));
+        app.ui.player.loading_status = Some("loading".into());
+        app.play_generation = 2; // after Video -> Audio -> Video
+
+        app.handle_event(AppEvent::VideoStreamReady {
+            song: song(1),
+            stream_url: "http://example.com/stream".into(),
+            generation: 0, // the FIRST video task, superseded twice
+        })
+        .await;
+
+        assert_eq!(
+            app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
+            Some("id-1"),
+            "stale video stream ready must not clear current_song"
+        );
+        assert_eq!(
+            app.ui.player.loading_status.as_deref(),
+            Some("loading"),
+            "stale video stream ready must not wipe the fresh loading indicator"
+        );
+        assert_eq!(
+            app.ui.active_notifications().count(),
+            0,
+            "stale video stream ready must not spawn mpv or push errors"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stale_audio_download_error_from_old_generation_is_dropped_even_when_mode_matches() {
+        // Scenario: user toggles Audio -> Video -> Audio (back to Audio). The
+        // first Audio task (generation 0) fails AFTER the second toggle. Mode
+        // matches the fresh playback (generation 2), so only the generation
+        // guard can drop it. Honoring it would clear current_song and abort
+        // the fresh audio playback.
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.ui.player.current_song = Some(song(1));
+        app.play_generation = 2; // after Audio -> Video -> Audio
+
+        app.handle_event(AppEvent::AudioDownloadError {
+            message: "Download failed".into(),
+            generation: 0, // the FIRST audio task, superseded twice
+        })
+        .await;
+
+        assert_eq!(
+            app.ui.player.current_song.as_ref().map(|s| s.id.as_str()),
+            Some("id-1"),
+            "download error from an old generation must not clear current_song"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_queue_play_increments_play_generation() {
+        // Every play must start a new generation so events from the previous
+        // play's in-flight tasks become stale. A regression here would let an
+        // old task's event survive the generation guard.
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        let before = app.play_generation;
+
+        app.queue_play(song(1));
+
+        assert_eq!(
+            app.play_generation,
+            before + 1,
+            "queue_play must bump play_generation"
+        );
+        assert!(
+            app.pending_play.is_some(),
+            "queue_play must set pending_play"
+        );
+    }
 }

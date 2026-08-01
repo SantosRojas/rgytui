@@ -118,11 +118,12 @@ impl App {
                 self.ui.player.current_song = None;
             }
             AppEvent::VideoStreamReady { song, stream_url, generation } => {
-                self.ui.player.loading_status = None;
                 // Drop stale events from a mode toggle or song switch — the
                 // stream belongs to the old mode/selection, or the task is
                 // from an older play generation. Without this, a leftover
-                // video stream would spawn mpv over the new mode.
+                // video stream would spawn mpv over the new mode. Note the
+                // loading indicator is cleared only AFTER the guards: a stale
+                // event must not wipe the fresh play's spinner.
                 let song_is_current = self
                     .ui
                     .player
@@ -146,6 +147,7 @@ impl App {
                         self.ui.player.current_song = None;
                     }
                 }
+                self.ui.player.loading_status = None;
             }
             AppEvent::ShowConfirmExit => {
                 self.ui.show_exit_confirmation = true;
