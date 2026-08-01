@@ -127,10 +127,20 @@ impl RodioAdapter {
             return false;
         }
         self.last_device_check = Some(now);
-        let Some(current) = Self::default_device_id() else {
-            return false;
-        };
-        self.sink_device_id.as_ref() != Some(&current)
+        let current = Self::default_device_id();
+        Self::device_identity_changed(&self.sink_device_id, &current)
+    }
+
+    /// Pure comparison for the route-change check: a change is only a change
+    /// when a recorded sink id exists AND differs from the current default. A
+    /// `None` recorded id (transient enumeration failure at open time) keeps
+    /// the check inert — there is no baseline to compare, so a later-resolved
+    /// default must not trigger a spurious reopen.
+    fn device_identity_changed(recorded: &Option<String>, current: &Option<String>) -> bool {
+        match (recorded, current) {
+            (Some(recorded), Some(current)) => recorded != current,
+            _ => false,
+        }
     }
 
     /// Pure predicate for the route-change check: only watch while actually
@@ -609,5 +619,25 @@ mod tests {
         assert!(!RodioAdapter::should_check_device(PlayerState::Paused, false));
         assert!(!RodioAdapter::should_check_device(PlayerState::Stopped, false));
         assert!(!RodioAdapter::should_check_device(PlayerState::Idle, false));
+    }
+
+    #[test]
+    fn device_identity_changed_is_inert_without_a_recorded_baseline() {
+        // No recorded sink id (transient enumeration failure at open time):
+        // the check stays inert even when the default later resolves —
+        // there is no baseline to compare, so no spurious reopen.
+        assert!(!RodioAdapter::device_identity_changed(&None, &Some("current".into())));
+        assert!(!RodioAdapter::device_identity_changed(&None, &None));
+        // Recorded id but no current default: cannot prove a change, inert.
+        assert!(!RodioAdapter::device_identity_changed(&Some("previous".into()), &None));
+        // Same id: no change. Different id: route switch detected.
+        assert!(!RodioAdapter::device_identity_changed(
+            &Some("speakers".into()),
+            &Some("speakers".into())
+        ));
+        assert!(RodioAdapter::device_identity_changed(
+            &Some("speakers".into()),
+            &Some("headset".into())
+        ));
     }
 }
