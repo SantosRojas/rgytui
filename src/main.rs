@@ -107,9 +107,6 @@ async fn main() -> Result<(), anyhow::Error> {
 const LOG_FILE_NAME: &str = "rgytui.log";
 /// Name the log file is rotated to when it exceeds [`LOG_MAX_BYTES`].
 const LOG_OLD_FILE_NAME: &str = "rgytui.log.old";
-/// Temporary name the previous `.old` is parked under while a Windows rotation
-/// replaces it (rename cannot overwrite an existing file there).
-const LOG_OLD_PREV_FILE_NAME: &str = "rgytui.log.old.prev";
 /// Cap for the log file; beyond this it is rotated so it cannot grow unboundedly.
 const LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 
@@ -143,8 +140,11 @@ fn open_log_writer_in(dir: &Path) -> Box<dyn std::io::Write + Send + Sync> {
     }
     let path = dir.join(LOG_FILE_NAME);
     // Startup rotation is still useful: it produces the .old file even when the
-    // session never exceeds the cap again.
-    rotate_if_needed(&path, LOG_MAX_BYTES);
+    // session never exceeds the cap again. This runs before the TUI takes raw
+    // mode, so a stderr warning here cannot corrupt the interface.
+    if let Err(e) = rotate_if_needed(&path, LOG_MAX_BYTES) {
+        eprintln!("Warning: cannot rotate oversized log {}: {e}", path.display());
+    }
     match RotatingLogWriter::open(path.clone()) {
         Ok(writer) => Box::new(writer),
         Err(e) => {
@@ -163,6 +163,11 @@ struct RotatingLogWriter {
     path: PathBuf,
     written: u64,
     max_bytes: u64,
+    /// Latch set after a rotation attempt failed. Once set, no further rotation
+    /// attempts are made: a persistent failure (e.g. another process locking
+    /// the log) must not turn every log write into a rename retry storm, and
+    /// must not spam stderr inside the raw-mode TUI.
+    rotation_failed: bool,
 }
 
 impl RotatingLogWriter {
@@ -181,6 +186,7 @@ impl RotatingLogWriter {
             path,
             written,
             max_bytes,
+            rotation_failed: false,
         })
     }
 
@@ -189,20 +195,43 @@ impl RotatingLogWriter {
     /// allowed on Windows (open files are locked there). Best-effort: if the
     /// rotation fails the oversized file stays in place and we keep appending
     /// to it; if it cannot be reopened at all, writes fall back to the null
-    /// device. Either way logging never crashes.
+    /// device until the next retry. Either way logging never crashes. Only a
+    /// genuine rename failure latches (so later writes do not re-attempt a
+    /// failing rename); benign outcomes (no file, file below the cap) and a
+    /// failed reopen are NOT latched — the reopen is re-attempted on later
+    /// writes so a transient failure cannot silently drop the session's logs.
+    /// Note: this runs inside the tracing writer (behind the subscriber's
+    /// Mutex), so it must NEVER emit tracing events itself (deadlock) nor
+    /// stderr text mid-session (the raw-mode TUI owns the terminal) — a failed
+    /// rotation is reported silently and only once, via the latch.
     fn rotate(&mut self) {
+        if self.rotation_failed {
+            return;
+        }
         let _ = self.file.flush();
         // Close the current handle before renaming (see the Windows note above).
         self.file = Box::new(std::io::sink());
-        rotate_if_needed(&self.path, self.max_bytes);
+        let rotated = rotate_if_needed(&self.path, self.max_bytes);
         match open_log_file(&self.path) {
-            Ok(file) => self.file = Box::new(file),
-            Err(e) => eprintln!(
-                "Warning: cannot reopen log file {} after rotation: {e}",
-                self.path.display()
-            ),
+            Ok(file) => {
+                self.file = Box::new(file);
+                self.written = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
+            }
+            Err(_) => {
+                // Reopen failed (e.g. the rename left the file locked, or the
+                // filesystem is unavailable). Keep the sink for now but force
+                // the next write to retry the reopen: written is left at the
+                // cap so the very next write re-enters rotate() and attempts
+                // open_log_file again, silently, with no stderr.
+                self.written = self.max_bytes;
+            }
         }
-        self.written = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
+        if rotated.is_err() {
+            // Rename failed (e.g. another process holds the log open on
+            // Windows). Do not retry on every subsequent write; keep appending
+            // to the oversized file instead.
+            self.rotation_failed = true;
+        }
     }
 }
 
@@ -235,40 +264,31 @@ fn open_log_file(path: &Path) -> std::io::Result<std::fs::File> {
     opts.open(path)
 }
 
+/// Outcome of a rotation attempt.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RotateOutcome {
+    /// The oversized log was renamed to `rgytui.log.old`.
+    Rotated,
+    /// Nothing to rotate: no existing log, or it is below the cap.
+    NothingToRotate,
+}
+
 /// Rotate `path` to `rgytui.log.old` when it exceeds `max_bytes`, so the log
-/// cannot grow unboundedly. Best-effort: never fails — a failed rotation just
-/// leaves the oversized log in place (the writer appends to it as before).
-fn rotate_if_needed(path: &Path, max_bytes: u64) {
+/// cannot grow unboundedly. Best-effort: never panics. `std::fs::rename`
+/// replaces an existing destination on every platform (on Windows it maps to
+/// MoveFileExW MOVEFILE_REPLACE_EXISTING / FileRenameInfoEx), so a single
+/// rename is all that is needed. Returns the error when the oversized file
+/// could not be renamed, so callers can surface or latch on the actual cause.
+fn rotate_if_needed(path: &Path, max_bytes: u64) -> std::io::Result<RotateOutcome> {
     let Ok(meta) = std::fs::metadata(path) else {
-        return; // no existing log yet
+        return Ok(RotateOutcome::NothingToRotate); // no existing log yet
     };
     if meta.len() < max_bytes {
-        return;
+        return Ok(RotateOutcome::NothingToRotate);
     }
     let old = path.with_file_name(LOG_OLD_FILE_NAME);
-    #[cfg(unix)]
-    {
-        // rename(2) atomically replaces an existing .old, so no dance needed.
-        if let Err(e) = std::fs::rename(path, &old) {
-            eprintln!("Warning: cannot rotate log file {}: {e}", path.display());
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        // On Windows rename cannot overwrite an existing file, so park the
-        // previous .old aside first and restore it if the rotation itself
-        // fails. Best-effort: never panics, a failed rotation just leaves the
-        // oversized log in place.
-        let prev = path.with_file_name(LOG_OLD_PREV_FILE_NAME);
-        let _ = std::fs::remove_file(&prev); // drop a stale temp from a crash
-        let _ = std::fs::rename(&old, &prev);
-        if let Err(e) = std::fs::rename(path, &old) {
-            eprintln!("Warning: cannot rotate log file {}: {e}", path.display());
-            let _ = std::fs::rename(&prev, &old); // restore the parked .old
-        } else {
-            let _ = std::fs::remove_file(&prev); // success: drop the parked .old
-        }
-    }
+    std::fs::rename(path, &old)?;
+    Ok(RotateOutcome::Rotated)
 }
 
 #[cfg(test)]
@@ -414,6 +434,79 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             "",
             "the fresh file must be empty after rotation"
+        );
+    }
+
+    #[test]
+    fn rotating_writer_latches_after_failed_rotation_and_keeps_appending() {
+        // Force the rotation rename to fail deterministically: rename of a
+        // file onto an existing DIRECTORY fails on every platform.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(LOG_FILE_NAME);
+        let old = dir.path().join(LOG_OLD_FILE_NAME);
+        std::fs::create_dir(&old).unwrap();
+
+        let mut writer = RotatingLogWriter::open_with_cap(path.clone(), 4).unwrap();
+        writer.write_all(b"abcd").unwrap(); // hits the cap; rename fails
+        assert!(
+            writer.rotation_failed,
+            "a failed rotation must latch so later writes stop retrying"
+        );
+
+        writer.write_all(b"efgh").unwrap(); // must NOT re-attempt rotation
+        assert!(
+            writer.rotation_failed,
+            "the latch must persist across subsequent writes"
+        );
+        drop(writer);
+
+        assert!(
+            old.is_dir(),
+            "the blocked .old must not have been replaced"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "abcdefgh",
+            "all writes must keep landing in the active log after a failed rotation"
+        );
+    }
+
+    #[test]
+    fn rotating_writer_does_not_latch_on_missing_or_undersized_log() {
+        // A deleted (or externally truncated) log is a BENIGN state, not a
+        // rotation failure: rotate_if_needed reports NothingToRotate and the
+        // writer must keep attempting rotation later instead of latching.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(LOG_FILE_NAME);
+        let old = dir.path().join(LOG_OLD_FILE_NAME);
+
+        let mut writer = RotatingLogWriter::open_with_cap(path.clone(), 4).unwrap();
+        writer.write_all(b"abcd").unwrap(); // hits the cap; rename succeeds
+        assert!(
+            !writer.rotation_failed,
+            "a successful rotation must not set the latch"
+        );
+        assert!(old.exists(), "oversized log must be rotated to .old");
+        drop(writer);
+
+        // Now simulate a mid-session deletion: the next cap crossing sees no
+        // file (NothingToRotate), which must NOT latch the writer.
+        std::fs::remove_file(&path).unwrap();
+        let mut writer = RotatingLogWriter::open_with_cap(path.clone(), 4).unwrap();
+        writer.write_all(b"xy").unwrap(); // written 2
+        writer.write_all(b"zw").unwrap(); // written 4 >= cap; file missing -> NothingToRotate
+        assert!(
+            !writer.rotation_failed,
+            "NothingToRotate (missing log) must not latch rotation"
+        );
+
+        // And once a real oversized file exists again, rotation still happens.
+        std::fs::write(&path, vec![b'a'; 6]).unwrap();
+        writer.write_all(b"tail").unwrap(); // written >= cap; file 6 bytes -> Rotated
+        drop(writer);
+        assert!(
+            old.exists(),
+            "rotation must still work after a benign NothingToRotate"
         );
     }
 }
