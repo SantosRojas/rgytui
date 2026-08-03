@@ -163,11 +163,19 @@ struct RotatingLogWriter {
     path: PathBuf,
     written: u64,
     max_bytes: u64,
-    /// Latch set after a rotation attempt failed. Once set, no further rotation
-    /// attempts are made: a persistent failure (e.g. another process locking
-    /// the log) must not turn every log write into a rename retry storm, and
-    /// must not spam stderr inside the raw-mode TUI.
+    /// Latch set after the rotation RENAME failed. Once set, the rename is not
+    /// retried on every write: a persistent failure (e.g. another process
+    /// locking the log) must not turn every log write into a rename retry
+    /// storm, and must not spam stderr inside the raw-mode TUI. It only
+    /// suppresses the rename, never the reopen — a writer left on the null
+    /// device by a transient reopen failure must keep trying to recover (see
+    /// [`Self::rotate`]).
     rotation_failed: bool,
+    /// True while the writer targets the null device because the last reopen
+    /// failed. While set, the next cap crossing re-attempts the reopen
+    /// (silently), and a successful reopen clears a transient rename latch so
+    /// rotation can resume.
+    on_sink: bool,
 }
 
 impl RotatingLogWriter {
@@ -187,6 +195,7 @@ impl RotatingLogWriter {
             written,
             max_bytes,
             rotation_failed: false,
+            on_sink: false,
         })
     }
 
@@ -200,37 +209,54 @@ impl RotatingLogWriter {
     /// failing rename); benign outcomes (no file, file below the cap) and a
     /// failed reopen are NOT latched — the reopen is re-attempted on later
     /// writes so a transient failure cannot silently drop the session's logs.
+    /// The latch only suppresses the rename: while the writer is on the null
+    /// device the reopen keeps being retried, and a successful reopen clears
+    /// the latch so rotation can resume after a transient lock clears.
     /// Note: this runs inside the tracing writer (behind the subscriber's
     /// Mutex), so it must NEVER emit tracing events itself (deadlock) nor
     /// stderr text mid-session (the raw-mode TUI owns the terminal) — a failed
     /// rotation is reported silently and only once, via the latch.
     fn rotate(&mut self) {
-        if self.rotation_failed {
+        if self.rotation_failed && !self.on_sink {
+            // Rename failed and we are still writing to a real file: keep
+            // appending to the oversized file; do not re-attempt the rename
+            // (retry storm) nor the reopen (already open).
             return;
         }
         let _ = self.file.flush();
         // Close the current handle before renaming (see the Windows note above).
         self.file = Box::new(std::io::sink());
-        let rotated = rotate_if_needed(&self.path, self.max_bytes);
+        let rename_attempted = !self.rotation_failed;
+        let was_on_sink = self.on_sink;
+        if rename_attempted && rotate_if_needed(&self.path, self.max_bytes).is_err() {
+            // Rename failed (e.g. another process holds the log open on
+            // Windows). Do not retry it on every subsequent write; keep
+            // appending to the oversized file instead.
+            self.rotation_failed = true;
+        }
         match open_log_file(&self.path) {
             Ok(file) => {
                 self.file = Box::new(file);
                 self.written = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
+                self.on_sink = false;
+                // Recovered from the null device: the transient failure that
+                // put us there cleared, so a rename latch from that same
+                // period may be cleared too and rotation can resume on later
+                // writes.
+                if was_on_sink {
+                    self.rotation_failed = false;
+                }
             }
             Err(_) => {
                 // Reopen failed (e.g. the rename left the file locked, or the
                 // filesystem is unavailable). Keep the sink for now but force
                 // the next write to retry the reopen: written is left at the
                 // cap so the very next write re-enters rotate() and attempts
-                // open_log_file again, silently, with no stderr.
+                // open_log_file again, silently, with no stderr. Never latch
+                // here — a transient reopen failure must not kill rotation.
                 self.written = self.max_bytes;
+                self.on_sink = true;
             }
-        }
-        if rotated.is_err() {
-            // Rename failed (e.g. another process holds the log open on
-            // Windows). Do not retry on every subsequent write; keep appending
-            // to the oversized file instead.
-            self.rotation_failed = true;
         }
     }
 }
@@ -476,25 +502,37 @@ mod tests {
         // A deleted (or externally truncated) log is a BENIGN state, not a
         // rotation failure: rotate_if_needed reports NothingToRotate and the
         // writer must keep attempting rotation later instead of latching.
+        // NOTE: the log is truncated/removed WHILE the writer holds it open,
+        // so the writer's in-memory `written` counter keeps growing past the
+        // cap while the on-disk file is missing or below the cap — the exact
+        // benign state the R3-1 latch bug mishandled.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(LOG_FILE_NAME);
         let old = dir.path().join(LOG_OLD_FILE_NAME);
 
         let mut writer = RotatingLogWriter::open_with_cap(path.clone(), 4).unwrap();
-        writer.write_all(b"abcd").unwrap(); // hits the cap; rename succeeds
+
+        // --- Undersized: truncate the log below the cap while the writer is
+        // open, then cross the cap again. The on-disk file stays below the
+        // cap, so rotate_if_needed must report NothingToRotate (no latch).
+        writer.write_all(b"ab").unwrap(); // written 2, on-disk 2 bytes
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(0)
+            .unwrap();
+        writer.write_all(b"cd").unwrap(); // written 4 >= cap; on-disk 2 bytes
         assert!(
             !writer.rotation_failed,
-            "a successful rotation must not set the latch"
+            "NothingToRotate (undersized log) must not latch rotation"
         );
-        assert!(old.exists(), "oversized log must be rotated to .old");
-        drop(writer);
 
-        // Now simulate a mid-session deletion: the next cap crossing sees no
-        // file (NothingToRotate), which must NOT latch the writer.
+        // --- Missing: delete the log while the writer is open, then cross the
+        // cap again. rotate_if_needed sees no file -> NothingToRotate.
         std::fs::remove_file(&path).unwrap();
-        let mut writer = RotatingLogWriter::open_with_cap(path.clone(), 4).unwrap();
-        writer.write_all(b"xy").unwrap(); // written 2
-        writer.write_all(b"zw").unwrap(); // written 4 >= cap; file missing -> NothingToRotate
+        writer.write_all(b"xy").unwrap(); // written 2 (in-memory)
+        writer.write_all(b"zw").unwrap(); // written 4 >= cap; file missing
         assert!(
             !writer.rotation_failed,
             "NothingToRotate (missing log) must not latch rotation"
@@ -502,11 +540,134 @@ mod tests {
 
         // And once a real oversized file exists again, rotation still happens.
         std::fs::write(&path, vec![b'a'; 6]).unwrap();
-        writer.write_all(b"tail").unwrap(); // written >= cap; file 6 bytes -> Rotated
+        writer.write_all(b"tail").unwrap(); // written >= cap; file 6 bytes
         drop(writer);
         assert!(
             old.exists(),
             "rotation must still work after a benign NothingToRotate"
+        );
+    }
+
+    #[test]
+    fn rotating_writer_retries_reopen_after_transient_failure() {
+        // A failed reopen must NOT latch rotation: the writer falls back to
+        // the null device but re-attempts the reopen on later cap crossings,
+        // and recovers (writing to a real file again) once the path is
+        // openable — a transient failure cannot silently drop the session's
+        // logs for good. Simulate the failure by making the parent directory
+        // disappear mid-session, so both metadata (NothingToRotate) and
+        // open_log_file (NotFound) fail deterministically on every platform.
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("parent");
+        std::fs::create_dir(&parent).unwrap();
+        let path = parent.join(LOG_FILE_NAME);
+        let old = parent.join(LOG_OLD_FILE_NAME);
+
+        let mut writer = RotatingLogWriter::open_with_cap(path.clone(), 4).unwrap();
+        writer.write_all(b"abcd").unwrap(); // at cap -> Rotated; fresh file
+        assert!(old.exists(), "a successful rotation must produce .old");
+
+        // Remove the log, its rotated .old, and the parent directory while
+        // the writer is open (Windows defers the log deletion only while a
+        // handle stays open, so the parent removal needs the .old gone too).
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_file(&old).unwrap();
+        std::fs::remove_dir(&parent).unwrap();
+
+        writer.write_all(b"xy").unwrap(); // written 2 (in-memory)
+        writer.write_all(b"zw").unwrap(); // written 4 >= cap -> rotate() fails reopen
+        assert!(
+            writer.on_sink,
+            "a failed reopen must leave the writer on the null device"
+        );
+        assert!(
+            !writer.rotation_failed,
+            "a failed reopen must NOT latch rotation"
+        );
+
+        // Restore the parent: the next cap crossing must retry the reopen and
+        // recover onto a real file.
+        std::fs::create_dir(&parent).unwrap();
+        writer.write_all(b"efgh").unwrap(); // retries reopen -> succeeds
+        assert!(
+            !writer.on_sink,
+            "the writer must recover from the null device once the path is openable"
+        );
+
+        writer.write_all(b"tail").unwrap(); // written >= cap -> rotates again
+        drop(writer);
+        assert!(
+            old.exists(),
+            "rotation must still work after a transient reopen failure"
+        );
+    }
+
+    #[test]
+    fn rotating_writer_recovers_from_combined_rename_and_reopen_failure() {
+        // The R3-3 fix: when BOTH the rename and the reopen fail in the same
+        // rotation, the writer must NOT stay on the null device forever. The
+        // rename latch only suppresses the rename; the reopen is retried on
+        // later cap crossings and, once the path is openable again, the writer
+        // recovers onto a real file and clears the latch so rotation can
+        // resume. A cap of 0 makes every write cross the cap; a NON-EMPTY
+        // directory in `.old` makes the rename fail on every platform, and a
+        // NON-EMPTY directory at `path` makes open_log_file fail too.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(LOG_FILE_NAME);
+        let old = dir.path().join(LOG_OLD_FILE_NAME);
+
+        // Start with a real oversized log so the writer can be opened.
+        std::fs::write(&path, b"abcd").unwrap();
+        let mut writer = RotatingLogWriter::open_with_cap(path.clone(), 0).unwrap();
+
+        // Turn both the log and the .old target into non-empty directories so
+        // the rename fails (ENOTEMPTY/ACCESS_DENIED) and the reopen fails
+        // (EISDIR/ACCESS_DENIED) in the same rotation.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(path.join("inner"), b"x").unwrap();
+        std::fs::create_dir(&old).unwrap();
+        std::fs::write(old.join("stale"), b"x").unwrap();
+
+        writer.write_all(b"x").unwrap(); // cross the cap -> combined failure
+        assert!(
+            writer.rotation_failed && writer.on_sink,
+            "the combined failure must latch the rename AND put the writer on the sink"
+        );
+
+        // A second write in that state must still retry (not early-return),
+        // and the rename must NOT be re-attempted while latched.
+        writer.write_all(b"y").unwrap();
+        assert!(
+            writer.rotation_failed && writer.on_sink,
+            "the latch must persist while the combined failure persists"
+        );
+
+        // Repair the log path: once it is a regular openable file again, the
+        // next cap crossing must retry the reopen, recover onto the real file,
+        // and clear the latch. (Under the base unconditional early return the
+        // reopen would never be retried and on_sink would stay true.)
+        std::fs::remove_dir_all(&path).unwrap();
+        std::fs::write(&path, b"abc").unwrap();
+        writer.write_all(b"z").unwrap(); // sink write that triggers the retry
+        assert!(
+            !writer.on_sink,
+            "the writer must recover from the sink once the path is openable"
+        );
+        assert!(
+            !writer.rotation_failed,
+            "a recovered reopen must clear the transient rename latch"
+        );
+
+        // Subsequent writes must land in the real file again, and a later
+        // rename failure (the .old directory is still there) must re-latch
+        // into the append-to-real-file state, not the sink.
+        writer.write_all(b"w").unwrap(); // rotates: rename fails again -> re-latch
+        writer.write_all(b"final").unwrap(); // early-return: append to the real file
+        drop(writer);
+        assert!(
+            std::fs::read_to_string(&path).unwrap().contains("wfinal"),
+            "post-recovery writes must land in the real log file"
         );
     }
 }
