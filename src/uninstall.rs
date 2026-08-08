@@ -4,12 +4,15 @@
 //! optionally cleans up PATH. On Windows it uses a delayed script because
 //! you cannot delete a running `.exe`.
 //!
-//! Install location discovery follows the same rules as `update`:
+//! Binary location discovery follows the same rules as `update`:
 //!
-//! 1. `RGYTUI_HOME` environment variable, or
-//! 2. Platform default:
-//!    - Linux/macOS: `~/.local/share/rgytui/`
-//!    - Windows: `%LOCALAPPDATA%\rgytui`
+//! 1. `RGYTUI_HOME` environment variable (binary in `$RGYTUI_HOME/bin`), or
+//! 2. A well-known default that matches the installer scripts:
+//!    - Linux/macOS: `~/.local/bin/`
+//!    - Windows: `%LOCALAPPDATA%\rgytui\bin`
+//!
+//! Repo/data directories live under `~/.local/share/rgytui` (Linux/macOS) or
+//! `%LOCALAPPDATA%\rgytui` (Windows).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -17,12 +20,17 @@ use std::path::{Path, PathBuf};
 /// Run `rgytui uninstall` — remove binary, repo, and clean up PATH.
 pub fn run_uninstall() -> Result<(), anyhow::Error> {
     let home = install_home();
-    let bin_dir = home.join("bin");
+    let bin_dir = bin_dir();
     let repo_dir = home.join("repo");
+
+    // Determine the binary name for the current platform
+    let target_name = if cfg!(windows) { "rgytui.exe" } else { "rgytui" };
+    let binary_path = bin_dir.join(target_name);
 
     // Confirm
     eprintln!("This will remove rgytui and all its files from:");
     eprintln!("  {}", home.display());
+    eprintln!("  {}", binary_path.display());
     eprintln!();
 
     // Skip confirmation if --yes or -y is passed
@@ -59,10 +67,6 @@ pub fn run_uninstall() -> Result<(), anyhow::Error> {
         std::io::stdin().read_line(&mut input)?;
         input.trim().to_lowercase() == "y"
     };
-
-    // Determine the binary name for the current platform
-    let target_name = if cfg!(windows) { "rgytui.exe" } else { "rgytui" };
-    let binary_path = bin_dir.join(target_name);
 
     // Ask about config data removal (settings + playlists)
     let config_dir = config_dir_path();
@@ -263,22 +267,25 @@ fn uninstall_unix(
         eprintln!("  ✓ Removed {binary_s}");
     }
 
+    // Legacy cleanup: versions before the bin-dir alignment wrote the binary
+    // to ~/.local/share/rgytui/bin/rgytui. Remove any stale copy so old
+    // installs uninstall cleanly. The shared ~/.local/bin dir itself is never
+    // removed — it may hold other user tools.
+    let legacy_bin = install_home().join("bin").join("rgytui");
+    if legacy_bin.exists() || legacy_bin.is_symlink() {
+        fs::remove_file(&legacy_bin)?;
+        eprintln!("  ✓ Removed legacy binary {}", legacy_bin.display());
+    }
+    if let Some(legacy_dir) = legacy_bin.parent()
+        && legacy_dir.exists()
+    {
+        let _ = fs::remove_dir(legacy_dir); // best-effort, only removes if empty
+    }
+
     // Remove repo
     if repo_dir.exists() {
         fs::remove_dir_all(repo_dir)?;
         eprintln!("  ✓ Removed {repo_s}");
-    }
-
-    // Remove empty bin directory (left after removing the binary)
-    if bin_dir.exists() {
-        // Only remove if empty (all files already deleted)
-        let bin_remaining: Vec<_> = std::fs::read_dir(bin_dir)
-            .unwrap_or_else(|_| panic!("Failed to read {}", bin_dir.display()))
-            .filter_map(|e| e.ok())
-            .collect();
-        if bin_remaining.is_empty() {
-            let _ = fs::remove_dir(bin_dir); // best-effort
-        }
     }
 
     // Remove the home directory (should now be empty)
@@ -329,6 +336,34 @@ fn install_home() -> PathBuf {
         return PathBuf::from(val);
     }
     default_install_home()
+}
+
+/// Directory where the rgytui binary lives. Must match the installer:
+/// `~/.local/bin` on Linux/macOS, `%LOCALAPPDATA%\rgytui\bin` on Windows.
+/// An explicit `RGYTUI_HOME` override redirects to `$RGYTUI_HOME/bin`.
+fn bin_dir() -> PathBuf {
+    if let Ok(val) = std::env::var("RGYTUI_HOME") {
+        return PathBuf::from(val).join("bin");
+    }
+    default_bin_dir()
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn default_bin_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    PathBuf::from(home).join(".local/bin")
+}
+
+#[cfg(windows)]
+fn default_bin_dir() -> PathBuf {
+    let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "C:\\".into());
+    PathBuf::from(local).join("rgytui").join("bin")
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+fn default_bin_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    PathBuf::from(home).join(".local/bin")
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]

@@ -162,16 +162,24 @@ impl App {
             }
             AppEvent::Notification(msg) => {
                 self.ui.is_upgrading = false;
-                let (key, level) = if msg.starts_with("upgrade_complete") {
-                    ("upgrade_complete", NotificationLevel::Success)
+                let (key, level, detail) = if msg.starts_with("upgrade_complete") {
+                    ("upgrade_complete", NotificationLevel::Success, None)
                 } else if msg.starts_with("upgrade_failed") {
-                    ("upgrade_failed", NotificationLevel::Error)
+                    let detail = msg
+                        .split_once(':')
+                        .map(|(_, rest)| rest.trim())
+                        .filter(|s| !s.is_empty());
+                    ("upgrade_failed", NotificationLevel::Error, detail)
                 } else {
                     // Generic notification — use as-is
                     self.ui.push_notification(msg, NotificationLevel::Info);
                     return;
                 };
-                self.ui.push_notification(self.ui.tr(key), level);
+                let mut text = self.ui.tr(key);
+                if let Some(detail) = detail {
+                    text = text.replace("{}", detail);
+                }
+                self.ui.push_notification(text, level);
             }
         }
     }

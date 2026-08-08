@@ -3,12 +3,12 @@
 //! Internal helpers used by the TUI upgrade popup. The app checks for new
 //! versions at startup and offers to upgrade through a modal dialog.
 //!
-//! The install location is determined by:
+//! The binary location is determined by:
 //!
-//! 1. `RGYTUI_HOME` environment variable, or
-//! 2. A well-known default:
-//!    - Linux/macOS: `~/.local/share/rgytui/`
-//!    - Windows: `%LOCALAPPDATA%\rgytui`
+//! 1. `RGYTUI_HOME` environment variable (binary in `$RGYTUI_HOME/bin`), or
+//! 2. A well-known default that matches the installer scripts:
+//!    - Linux/macOS: `~/.local/bin/`
+//!    - Windows: `%LOCALAPPDATA%\rgytui\bin`
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -48,8 +48,7 @@ pub fn check_latest() -> Result<Option<(String, String)>, anyhow::Error> {
 
 /// Download, extract, and install the binary from a given release URL.
 pub fn perform_upgrade(version: &str, url: &str) -> Result<(), anyhow::Error> {
-    let home = install_home();
-    let bin_dir = home.join("bin");
+    let bin_dir = bin_dir();
     std::fs::create_dir_all(&bin_dir)?;
 
     let target_name = binary_name();
@@ -263,32 +262,55 @@ fn make_executable(path: &Path) -> Result<(), anyhow::Error> {
 // ── Windows delayed replace ───────────────────────────────────────────────────
 
 /// On Windows, a running .exe cannot be overwritten. We write a small cmd
-/// script that waits, copies, then self-destructs (including the staging file).
+/// script that waits until the app process exits, then copies the staged
+/// binary over the destination and self-destructs (including the staging
+/// file). All output goes to a log file so nothing is painted over the TUI.
 #[cfg(windows)]
 fn schedule_delayed_replace(staging: &Path, dst: &Path) -> Result<(), anyhow::Error> {
     let update_script = dst.with_extension("update.cmd");
+    let log = dst.with_extension("update.log");
     let staging_s = staging.display();
     let dst_s = dst.display();
+    let log_s = log.display();
     let content = format!(
         "@echo off\r\n\
          title rgytui update\r\n\
-         timeout /t 2 /nobreak >nul\r\n\
-         copy /y \"{staging_s}\" \"{dst_s}\" >nul\r\n\
-         if errorlevel 1 (\r\n\
-             echo Failed to update. Close all rgytui instances and try again.\r\n\
-             pause\r\n\
-         ) else (\r\n\
-             echo ✓ rgytui updated.\r\n\
-             del \"{staging_s}\"\r\n\
-         )\r\n\
+         echo [%date% %time%] Waiting for rgytui to exit... >> \"{log_s}\"\r\n\
+         set /a tries=0\r\n\
+         :wait\r\n\
+         tasklist /FI \"IMAGENAME eq rgytui.exe\" 2>nul | find /I \"rgytui.exe\" >nul\r\n\
+         if errorlevel 1 goto copy\r\n\
+         set /a tries+=1\r\n\
+         if %tries% geq 300 goto deferred\r\n\
+         timeout /t 1 /nobreak >nul\r\n\
+         goto wait\r\n\
+         :copy\r\n\
+         copy /y \"{staging_s}\" \"{dst_s}\" >> \"{log_s}\" 2>&1\r\n\
+         if errorlevel 1 goto failed\r\n\
+         echo [%date% %time%] OK: rgytui updated. >> \"{log_s}\"\r\n\
+         del \"{staging_s}\" >> \"{log_s}\" 2>&1\r\n\
+         goto done\r\n\
+         :failed\r\n\
+         echo [%date% %time%] ERROR: Failed to update. Close all rgytui instances and try again. >> \"{log_s}\"\r\n\
+         goto done\r\n\
+         :deferred\r\n\
+         echo [%date% %time%] WARN: rgytui still running after 300s; update deferred to next start. >> \"{log_s}\"\r\n\
+         :done\r\n\
          del \"%~f0\"\r\n"
     );
     std::fs::write(&update_script, content)?;
 
-    let _ = std::process::Command::new("cmd")
-        .args(["/c", "start", "/b", "", &update_script.to_string_lossy()])
+    let spawn = std::process::Command::new("cmd")
+        .args(["/c", &update_script.to_string_lossy()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn();
-
+    if let Err(e) = spawn {
+        anyhow::bail!(
+            "Failed to launch update script {}: {e}",
+            update_script.display()
+        );
+    }
     Ok(())
 }
 
@@ -298,31 +320,34 @@ fn schedule_delayed_replace(_staging: &Path, _dst: &Path) -> Result<(), anyhow::
     unreachable!()
 }
 
-// ── Install home discovery ────────────────────────────────────────────────────
+// ── Binary directory discovery ────────────────────────────────────────────────
 
-fn install_home() -> PathBuf {
+/// Directory where the rgytui binary lives. Must match the installer:
+/// `~/.local/bin` on Linux/macOS, `%LOCALAPPDATA%\rgytui\bin` on Windows.
+/// An explicit `RGYTUI_HOME` override redirects to `$RGYTUI_HOME/bin`.
+fn bin_dir() -> PathBuf {
     if let Ok(val) = std::env::var("RGYTUI_HOME") {
-        return PathBuf::from(val);
+        return PathBuf::from(val).join("bin");
     }
-    default_install_home()
+    default_bin_dir()
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn default_install_home() -> PathBuf {
+fn default_bin_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".local/share/rgytui")
+    PathBuf::from(home).join(".local/bin")
 }
 
 #[cfg(windows)]
-fn default_install_home() -> PathBuf {
+fn default_bin_dir() -> PathBuf {
     let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "C:\\".into());
-    PathBuf::from(local).join("rgytui")
+    PathBuf::from(local).join("rgytui").join("bin")
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-fn default_install_home() -> PathBuf {
+fn default_bin_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".local/share/rgytui")
+    PathBuf::from(home).join(".local/bin")
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
