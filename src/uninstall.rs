@@ -4,18 +4,17 @@
 //! optionally cleans up PATH. On Windows it uses a delayed script because
 //! you cannot delete a running `.exe`.
 //!
-//! Binary location discovery follows the same rules as `update`:
-//!
-//! 1. `RGYTUI_HOME` environment variable (binary in `$RGYTUI_HOME/bin`), or
-//! 2. A well-known default that matches the installer scripts:
-//!    - Linux/macOS: `~/.local/bin/`
-//!    - Windows: `%LOCALAPPDATA%\rgytui\bin`
+//! Binary location always matches the installer scripts: `~/.local/bin` on
+//! Linux/macOS, `%LOCALAPPDATA%\rgytui\bin` on Windows (see `crate::paths`).
+//! `RGYTUI_HOME` overrides only the data/home directory — never the binary.
 //!
 //! Repo/data directories live under `~/.local/share/rgytui` (Linux/macOS) or
 //! `%LOCALAPPDATA%\rgytui` (Windows).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+
+use crate::paths::bin_dir;
 
 /// Run `rgytui uninstall` — remove binary, repo, and clean up PATH.
 pub fn run_uninstall() -> Result<(), anyhow::Error> {
@@ -227,7 +226,7 @@ Start-Sleep 3
 #[cfg(not(windows))]
 fn uninstall_unix(
     home: &Path,
-    bin_dir: &Path,
+    _bin_dir: &Path,
     repo_dir: &Path,
     binary_path: &Path,
     remove_ytdlp: bool,
@@ -239,26 +238,15 @@ fn uninstall_unix(
     let repo_s = repo_dir.display();
     let home_s = home.display();
 
-    // Remove optional dependencies
+    // Optional dependencies are installed by the SYSTEM package manager
+    // (apt/dnf/pacman/brew), never into the shared bin dir. Removing them
+    // from ~/.local/bin could delete user-owned tools, so we only tell the
+    // user how to remove them. The shared bin dir itself is never removed.
     if remove_ytdlp {
-        let ytdlp = bin_dir.join("yt-dlp");
-        if ytdlp.exists() || ytdlp.is_symlink() {
-            fs::remove_file(&ytdlp)?;
-            eprintln!("  ✓ Removed yt-dlp");
-        }
+        eprintln!("  ℹ  yt-dlp is managed by your package manager; remove it there (e.g. 'apt remove yt-dlp' / 'brew uninstall yt-dlp').");
     }
     if remove_mpv {
-        let mpv_bin = bin_dir.join("mpv");
-        if mpv_bin.exists() {
-            fs::remove_dir_all(&mpv_bin)?;
-            eprintln!("  ✓ Removed mpv directory");
-        } else {
-            let mpv_exe = bin_dir.join("mpv");
-            if mpv_exe.exists() || mpv_exe.is_symlink() {
-                fs::remove_file(&mpv_exe)?;
-                eprintln!("  ✓ Removed mpv");
-            }
-        }
+        eprintln!("  ℹ  mpv is managed by your package manager; remove it there (e.g. 'apt remove mpv' / 'brew uninstall mpv').");
     }
 
     // Remove binary (symlink or file)
@@ -329,41 +317,13 @@ fn remove_config_dir(dir: &Path) {
     }
 }
 
-// ── Install home discovery (same logic as update.rs) ─────────────────────────
+// ── Install home discovery (data root; binary lives in crate::paths::bin_dir) ─
 
 fn install_home() -> PathBuf {
     if let Ok(val) = std::env::var("RGYTUI_HOME") {
         return PathBuf::from(val);
     }
     default_install_home()
-}
-
-/// Directory where the rgytui binary lives. Must match the installer:
-/// `~/.local/bin` on Linux/macOS, `%LOCALAPPDATA%\rgytui\bin` on Windows.
-/// An explicit `RGYTUI_HOME` override redirects to `$RGYTUI_HOME/bin`.
-fn bin_dir() -> PathBuf {
-    if let Ok(val) = std::env::var("RGYTUI_HOME") {
-        return PathBuf::from(val).join("bin");
-    }
-    default_bin_dir()
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn default_bin_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".local/bin")
-}
-
-#[cfg(windows)]
-fn default_bin_dir() -> PathBuf {
-    let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "C:\\".into());
-    PathBuf::from(local).join("rgytui").join("bin")
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-fn default_bin_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".local/bin")
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -382,4 +342,27 @@ fn default_install_home() -> PathBuf {
 fn default_install_home() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     PathBuf::from(home).join(".local/share/rgytui")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_bin_dir_matches_installer() {
+        assert_eq!(
+            crate::paths::windows_bin_dir(Path::new(r"C:\Users\test\AppData\Local")),
+            PathBuf::from(r"C:\Users\test\AppData\Local\rgytui\bin")
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn unix_bin_dir_matches_installer() {
+        assert_eq!(
+            crate::paths::unix_bin_dir(Path::new("/home/test")),
+            PathBuf::from("/home/test/.local/bin")
+        );
+    }
 }

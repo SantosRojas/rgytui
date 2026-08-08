@@ -3,15 +3,16 @@
 //! Internal helpers used by the TUI upgrade popup. The app checks for new
 //! versions at startup and offers to upgrade through a modal dialog.
 //!
-//! The binary location is determined by:
-//!
-//! 1. `RGYTUI_HOME` environment variable (binary in `$RGYTUI_HOME/bin`), or
-//! 2. A well-known default that matches the installer scripts:
-//!    - Linux/macOS: `~/.local/bin/`
-//!    - Windows: `%LOCALAPPDATA%\rgytui\bin`
+//! The binary location always matches the installer scripts:
+//! `~/.local/bin` on Linux/macOS, `%LOCALAPPDATA%\rgytui\bin` on Windows.
+//! `RGYTUI_HOME` overrides only the data/home directory (repo clones,
+//! caches) — never the binary location, because the installers do not
+//! relocate the binary for it.
 
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+use crate::paths::bin_dir;
 
 const GH_OWNER: &str = "SantosRojas";
 const GH_REPO: &str = "rgytui";
@@ -269,10 +270,30 @@ fn make_executable(path: &Path) -> Result<(), anyhow::Error> {
 fn schedule_delayed_replace(staging: &Path, dst: &Path) -> Result<(), anyhow::Error> {
     let update_script = dst.with_extension("update.cmd");
     let log = dst.with_extension("update.log");
+    let content = delayed_replace_script(staging, dst, &log);
+    std::fs::write(&update_script, content)?;
+
+    let spawn = std::process::Command::new("cmd")
+        .args(["/c", &update_script.to_string_lossy()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    if let Err(e) = spawn {
+        anyhow::bail!(
+            "Failed to launch update script {}: {e}",
+            update_script.display()
+        );
+    }
+    Ok(())
+}
+
+/// Build the content of the delayed-replace `.cmd` script (pure, no I/O).
+#[cfg(windows)]
+fn delayed_replace_script(staging: &Path, dst: &Path, log: &Path) -> String {
     let staging_s = staging.display();
     let dst_s = dst.display();
     let log_s = log.display();
-    let content = format!(
+    format!(
         "@echo off\r\n\
          title rgytui update\r\n\
          echo [%date% %time%] Waiting for rgytui to exit... >> \"{log_s}\"\r\n\
@@ -297,21 +318,7 @@ fn schedule_delayed_replace(staging: &Path, dst: &Path) -> Result<(), anyhow::Er
          echo [%date% %time%] WARN: rgytui still running after 300s; update deferred to next start. >> \"{log_s}\"\r\n\
          :done\r\n\
          del \"%~f0\"\r\n"
-    );
-    std::fs::write(&update_script, content)?;
-
-    let spawn = std::process::Command::new("cmd")
-        .args(["/c", &update_script.to_string_lossy()])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
-    if let Err(e) = spawn {
-        anyhow::bail!(
-            "Failed to launch update script {}: {e}",
-            update_script.display()
-        );
-    }
-    Ok(())
+    )
 }
 
 /// Stub for non-Windows platforms.
@@ -320,34 +327,73 @@ fn schedule_delayed_replace(_staging: &Path, _dst: &Path) -> Result<(), anyhow::
     unreachable!()
 }
 
-// ── Binary directory discovery ────────────────────────────────────────────────
-
-/// Directory where the rgytui binary lives. Must match the installer:
-/// `~/.local/bin` on Linux/macOS, `%LOCALAPPDATA%\rgytui\bin` on Windows.
-/// An explicit `RGYTUI_HOME` override redirects to `$RGYTUI_HOME/bin`.
-fn bin_dir() -> PathBuf {
-    if let Ok(val) = std::env::var("RGYTUI_HOME") {
-        return PathBuf::from(val).join("bin");
-    }
-    default_bin_dir()
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn default_bin_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".local/bin")
-}
-
+/// Windows-only: sanity-check a staged update before rescheduling the
+/// delayed replace. A crash or a failed `std::fs::write` (e.g. disk full)
+/// can leave a 0-byte or partial `rgytui.new.exe`; copying that over the
+/// live binary would brick the next launch. We require a plausible size
+/// (never smaller than half of the live binary, which a real release
+/// update is not) and a valid PE header ("MZ" DOS stub and "PE\0\0"
+/// signature at the `e_lfanew` offset), matching how the updater produces
+/// staging.
 #[cfg(windows)]
-fn default_bin_dir() -> PathBuf {
-    let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "C:\\".into());
-    PathBuf::from(local).join("rgytui").join("bin")
+fn staging_is_valid(staging: &Path, dst: &Path) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut file = match std::fs::File::open(staging) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    // A real rgytui.exe is hundreds of KB. Reject anything far smaller
+    // than the binary it would replace (covers 0-byte, tiny, and partial
+    // files that still carry a header-complete first chunk) and enforce
+    // an absolute floor so an update never replaces a healthy binary with
+    // a truncated image.
+    let dst_size = std::fs::metadata(dst).map(|m| m.len()).unwrap_or(0);
+    if size < (dst_size / 2).max(1024) {
+        return false;
+    }
+    let mut dos = [0u8; 0x40];
+    if file.read_exact(&mut dos).is_err() || &dos[0..2] != b"MZ" {
+        return false;
+    }
+    let pe_offset =
+        u64::from(u32::from_le_bytes([dos[0x3C], dos[0x3D], dos[0x3E], dos[0x3F]]));
+    if pe_offset == 0 || pe_offset + 4 > size {
+        return false;
+    }
+    if file.seek(SeekFrom::Start(pe_offset)).is_err() {
+        return false;
+    }
+    let mut sig = [0u8; 4];
+    !file.read_exact(&mut sig).is_err() && &sig == b"PE\0\0"
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-fn default_bin_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".local/bin")
+/// Windows-only: if a previous upgrade left a staging file behind (the
+/// 300s deferred path or a copy that never ran), reschedule the delayed
+/// replace so the next exit applies it. Invalid staging (0-byte, partial,
+/// implausibly small, or missing the PE header) is removed instead of
+/// being applied, so a corrupt leftover can never clobber the live
+/// binary. No-op on Unix, where the binary is replaced in place.
+pub fn resume_pending_upgrade() -> Result<(), anyhow::Error> {
+    #[cfg(windows)]
+    {
+        let dst = bin_dir().join(binary_name());
+        let staging = dst.with_extension("new.exe");
+        if staging.exists() {
+            if !staging_is_valid(&staging, &dst) {
+                tracing::warn!(
+                    "Ignoring invalid pending upgrade staging file {}; removing it",
+                    staging.display()
+                );
+                let _ = std::fs::remove_file(&staging);
+                return Ok(());
+            }
+            tracing::info!("Pending upgrade staging found, rescheduling delayed replace...");
+            schedule_delayed_replace(&staging, &dst)?;
+        }
+    }
+    Ok(())
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -406,5 +452,121 @@ mod tests {
         let empty: Vec<u8> = vec![];
         let result = extract_from_tar_gz(&empty, "rgytui");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn bin_dir_delegates_to_paths_module() {
+        assert_eq!(bin_dir(), crate::paths::bin_dir());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn delayed_replace_script_contains_expected_structure() {
+        let script = delayed_replace_script(
+            Path::new(r"C:\rgytui\rgytui.new.exe"),
+            Path::new(r"C:\rgytui\rgytui.exe"),
+            Path::new(r"C:\rgytui\rgytui.update.log"),
+        );
+        for needle in [":wait", ":copy", ":deferred", ":done", "copy /y", "del \"%~f0\""] {
+            assert!(script.contains(needle), "script should contain {needle:?}");
+        }
+        assert!(!script.contains("pause"), "script must not pause waiting on the user");
+        assert!(
+            !script.contains("echo ✓"),
+            "script must not contain an un-redirected checkmark echo"
+        );
+    }
+
+    #[cfg(windows)]
+    mod staging_is_valid_tests {
+        use super::*;
+        use std::path::PathBuf;
+
+        fn write_temp(name: &str, bytes: &[u8]) -> PathBuf {
+            let path = std::env::temp_dir().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        }
+
+        fn pe_bytes(size: usize) -> Vec<u8> {
+            let mut bytes = vec![0u8; size];
+            bytes[0..2].copy_from_slice(b"MZ");
+            // e_lfanew at 0x3C -> point just past the DOS header
+            bytes[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+            bytes[0x80..0x84].copy_from_slice(b"PE\0\0");
+            bytes
+        }
+
+        #[test]
+        fn rejects_missing_file() {
+            let path = std::env::temp_dir().join("rgytui-absent.new.exe");
+            let dst = std::env::temp_dir().join("rgytui-absent-dst.exe");
+            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_file(&dst);
+            assert!(!staging_is_valid(&path, &dst));
+        }
+
+        #[test]
+        fn rejects_zero_byte_file() {
+            let path = write_temp("rgytui-empty.new.exe", &[]);
+            let dst = write_temp("rgytui-empty-dst.exe", &pe_bytes(4096));
+            assert!(!staging_is_valid(&path, &dst));
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(dst);
+        }
+
+        #[test]
+        fn rejects_tiny_file() {
+            let path = write_temp("rgytui-tiny.new.exe", b"MZ");
+            let dst = write_temp("rgytui-tiny-dst.exe", &pe_bytes(4096));
+            assert!(!staging_is_valid(&path, &dst));
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(dst);
+        }
+
+        #[test]
+        fn rejects_missing_pe_signature() {
+            let mut bytes = vec![0u8; 2048];
+            bytes[0..2].copy_from_slice(b"MZ");
+            bytes[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+            // No "PE\0\0" signature at 0x80
+            let path = write_temp("rgytui-nosig.new.exe", &bytes);
+            let dst = write_temp("rgytui-nosig-dst.exe", &pe_bytes(4096));
+            assert!(!staging_is_valid(&path, &dst));
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(dst);
+        }
+
+        #[test]
+        fn rejects_partial_file_with_header_complete_first_chunk() {
+            // Simulates a crash mid-write: the staging is far smaller than
+            // the live binary but still carries MZ + e_lfanew + PE\0\0 in
+            // its first bytes. The size guard must reject it.
+            let path = write_temp("rgytui-partial.new.exe", &pe_bytes(2048));
+            let dst = write_temp("rgytui-partial-dst.exe", &pe_bytes(8192));
+            assert!(!staging_is_valid(&path, &dst));
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(dst);
+        }
+
+        #[test]
+        fn rejects_partial_file_shorter_than_absolute_floor() {
+            // A header-complete staging below the 1 KB floor is rejected
+            // even when the dst is missing (fresh install edge case).
+            let path = write_temp("rgytui-floor.new.exe", &pe_bytes(512));
+            let dst = std::env::temp_dir().join("rgytui-floor-dst.exe");
+            let _ = std::fs::remove_file(&dst);
+            assert!(!staging_is_valid(&path, &dst));
+            let _ = std::fs::remove_file(path);
+        }
+
+        #[test]
+        fn accepts_valid_pe_file() {
+            let path = write_temp("rgytui-valid.new.exe", &pe_bytes(4096));
+            let dst = write_temp("rgytui-valid-dst.exe", &pe_bytes(4096));
+            assert!(staging_is_valid(&path, &dst));
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(dst);
+        }
     }
 }

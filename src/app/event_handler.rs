@@ -1,5 +1,25 @@
 use super::*;
 
+/// Parse an upgrade status message produced by the background upgrade task
+/// into a translation key, a notification level, and an optional detail. Any
+/// non-upgrade message returns `None` and is shown verbatim.
+fn parse_upgrade_msg(msg: &str) -> Option<(&'static str, NotificationLevel, Option<String>)> {
+    if msg.starts_with("upgrade_scheduled") {
+        Some(("upgrade_scheduled", NotificationLevel::Success, None))
+    } else if msg.starts_with("upgrade_complete") {
+        Some(("upgrade_complete", NotificationLevel::Success, None))
+    } else if msg.starts_with("upgrade_failed") {
+        let detail = msg
+            .split_once(':')
+            .map(|(_, rest)| rest.trim())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        Some(("upgrade_failed", NotificationLevel::Error, detail))
+    } else {
+        None
+    }
+}
+
 impl App {
     pub(crate) async fn handle_event(&mut self, event: AppEvent) {
         match event {
@@ -162,25 +182,67 @@ impl App {
             }
             AppEvent::Notification(msg) => {
                 self.ui.is_upgrading = false;
-                let (key, level, detail) = if msg.starts_with("upgrade_complete") {
-                    ("upgrade_complete", NotificationLevel::Success, None)
-                } else if msg.starts_with("upgrade_failed") {
-                    let detail = msg
-                        .split_once(':')
-                        .map(|(_, rest)| rest.trim())
-                        .filter(|s| !s.is_empty());
-                    ("upgrade_failed", NotificationLevel::Error, detail)
-                } else {
-                    // Generic notification — use as-is
-                    self.ui.push_notification(msg, NotificationLevel::Info);
-                    return;
-                };
-                let mut text = self.ui.tr(key);
-                if let Some(detail) = detail {
-                    text = text.replace("{}", detail);
+                match parse_upgrade_msg(&msg) {
+                    Some((key, level, detail)) => {
+                        let mut text = self.ui.tr(key);
+                        if let Some(detail) = detail {
+                            text = text.replace("{}", &detail);
+                        }
+                        self.ui.push_notification(text, level);
+                    }
+                    None => self.ui.push_notification(msg, NotificationLevel::Info),
                 }
-                self.ui.push_notification(text, level);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_upgrade_msg_complete_is_success() {
+        let (key, level, detail) = parse_upgrade_msg("upgrade_complete").unwrap();
+        assert_eq!(key, "upgrade_complete");
+        assert_eq!(level, NotificationLevel::Success);
+        assert!(detail.is_none());
+    }
+
+    #[test]
+    fn parse_upgrade_msg_failed_carries_detail() {
+        let (key, level, detail) = parse_upgrade_msg("upgrade_failed: disk full").unwrap();
+        assert_eq!(key, "upgrade_failed");
+        assert_eq!(level, NotificationLevel::Error);
+        assert_eq!(detail.as_deref(), Some("disk full"));
+    }
+
+    #[test]
+    fn parse_upgrade_msg_failed_carries_spawn_error_detail() {
+        let (key, level, detail) = parse_upgrade_msg("upgrade_failed: spawn error boom").unwrap();
+        assert_eq!(key, "upgrade_failed");
+        assert_eq!(level, NotificationLevel::Error);
+        assert_eq!(detail.as_deref(), Some("spawn error boom"));
+    }
+
+    #[test]
+    fn parse_upgrade_msg_scheduled_is_success() {
+        let (key, level, detail) = parse_upgrade_msg("upgrade_scheduled").unwrap();
+        assert_eq!(key, "upgrade_scheduled");
+        assert_eq!(level, NotificationLevel::Success);
+        assert!(detail.is_none());
+    }
+
+    #[test]
+    fn parse_upgrade_msg_generic_returns_none() {
+        assert!(parse_upgrade_msg("some generic message").is_none());
+    }
+
+    #[test]
+    fn parse_upgrade_msg_failed_without_detail_is_none_detail() {
+        let (key, level, detail) = parse_upgrade_msg("upgrade_failed:").unwrap();
+        assert_eq!(key, "upgrade_failed");
+        assert_eq!(level, NotificationLevel::Error);
+        assert!(detail.is_none());
     }
 }

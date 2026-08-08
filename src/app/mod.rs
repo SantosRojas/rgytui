@@ -68,6 +68,11 @@ impl App {
             tracing::warn!("Failed to cleanup orphan temp files: {}", e);
         }
 
+        // Resume a deferred Windows upgrade if a previous run left staging.
+        if let Err(e) = crate::update::resume_pending_upgrade() {
+            tracing::warn!("Failed to resume pending upgrade: {}", e);
+        }
+
         // Bounded channels provide natural backpressure: if the main loop lags,
         // the sender blocks (input thread via blocking_send, background tasks via .await).
         let (event_tx, event_rx) = mpsc::channel(256);

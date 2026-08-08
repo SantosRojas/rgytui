@@ -3,6 +3,7 @@ mod application;
 mod domain;
 mod infrastructure;
 mod interface;
+mod paths;
 mod shared;
 mod uninstall;
 mod update;

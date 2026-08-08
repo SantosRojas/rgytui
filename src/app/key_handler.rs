@@ -147,7 +147,13 @@ impl App {
                 })
                 .await;
                 let msg = match result {
-                    Ok(Ok(())) => "upgrade_complete".into(),
+                    Ok(Ok(())) => {
+                        if cfg!(windows) {
+                            "upgrade_scheduled".into()
+                        } else {
+                            "upgrade_complete".into()
+                        }
+                    }
                     Ok(Err(e)) => format!("upgrade_failed: {e}"),
                     Err(e) => format!("upgrade_failed: spawn error {e}"),
                 };
