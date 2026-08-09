@@ -1939,6 +1939,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_queue_play_resyncs_queue_indicator() {
+        // queue_play is the source of truth for the queue indicator: whichever
+        // song is queued for play, current_index must end up at its position.
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.playlist.add(song(1));
+        app.playlist.add(song(2));
+        app.playlist.add(song(3));
+
+        // Play a song from the middle of the queue: the indicator must follow.
+        app.queue_play(song(3));
+
+        assert_eq!(
+            app.playlist.playlist().current_index,
+            2,
+            "queue_play must sync the queue indicator to the queued song"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_audio_ready_resyncs_queue_indicator() {
+        // When the downloaded bytes for a song actually start playing, the
+        // queue indicator must be re-synced to that song's position — even if
+        // current_index was left pointing elsewhere by an earlier selection
+        // (e.g. a queue double-click while the download was in flight).
+        let mut app = match build_test_app().await {
+            Some(a) => a,
+            None => return,
+        };
+        app.playlist.add(song(1));
+        app.playlist.add(song(2));
+        app.playlist.add(song(3));
+        app.playlist.set_current_index(0);
+        app.ui.player.current_song = Some(song(3));
+
+        app.handle_event(AppEvent::AudioReady {
+            song: song(3),
+            data: vec![1, 2, 3],
+            generation: 0,
+        })
+        .await;
+
+        assert_eq!(
+            app.playlist.playlist().current_index,
+            2,
+            "AudioReady must sync the queue indicator to the song that starts playing"
+        );
+    }
+
+    #[tokio::test]
     async fn test_stale_audio_download_error_in_video_mode_is_dropped() {
         let mut app = match build_test_app_with_mode(AudioMode::Video).await {
             Some(a) => a,

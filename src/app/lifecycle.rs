@@ -21,6 +21,12 @@ impl App {
         // as stale and dropped.
         self.play_generation += 1;
         self.ui.player.current_song = Some(song.clone());
+        // queue_play is the source of truth for the queue indicator: keep
+        // current_index in sync with the position of the song being queued, so
+        // the ▶ marker always matches what is (about to be) played.
+        if let Some(pos) = self.playlist.songs().iter().position(|s| s.id == song.id) {
+            self.playlist.set_current_index(pos);
+        }
         self.pending_play = Some(song);
     }
 

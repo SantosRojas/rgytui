@@ -107,6 +107,11 @@ impl App {
                 {
                     return;
                 }
+                // Re-sync the queue indicator with the song that is actually
+                // starting.
+                if let Some(pos) = self.playlist.songs().iter().position(|s| s.id == song.id) {
+                    self.playlist.set_current_index(pos);
+                }
                 match self.playback.play_bytes(data, song) {
                     Ok(()) => {
                         self.ui.push_notification(self.ui.tr("notif_playing"), NotificationLevel::Info);
@@ -156,6 +161,11 @@ impl App {
                     || !matches!(self.playback.mode(), AudioMode::Video)
                 {
                     return;
+                }
+                // Re-sync the queue indicator with the song that is actually
+                // starting.
+                if let Some(pos) = self.playlist.songs().iter().position(|s| s.id == song.id) {
+                    self.playlist.set_current_index(pos);
                 }
                 match self.playback.play_video_stream(&stream_url, song).await {
                     Ok(()) => {}
