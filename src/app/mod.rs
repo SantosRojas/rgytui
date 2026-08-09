@@ -147,13 +147,13 @@ impl App {
         };
 
         // Warn if yt-dlp is missing — every search/download depends on it
-        if !tokio::process::Command::new("yt-dlp")
+        if tokio::process::Command::new("yt-dlp")
             .arg("--version")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
             .await
-            .is_ok()
+            .is_err()
         {
             ui.push_notification(
                 "⚠ yt-dlp is not installed. Search, download, and playback will not work. \
