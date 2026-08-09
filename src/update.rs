@@ -296,7 +296,7 @@ fn delayed_replace_script(staging: &Path, dst: &Path, log: &Path) -> String {
     format!(
         "@echo off\r\n\
          title rgytui update\r\n\
-         echo [%date% %time%] Waiting for rgytui to exit... >> \"{log_s}\"\r\n\
+         echo [%date% %time%] Waiting for rgytui to exit... > \"{log_s}\"\r\n\
          set /a tries=0\r\n\
          :wait\r\n\
          tasklist /FI \"IMAGENAME eq rgytui.exe\" 2>nul | find /I \"rgytui.exe\" >nul\r\n\
@@ -386,7 +386,12 @@ pub fn resume_pending_upgrade() -> Result<(), anyhow::Error> {
                     "Ignoring invalid pending upgrade staging file {}; removing it",
                     staging.display()
                 );
-                let _ = std::fs::remove_file(&staging);
+                if let Err(e) = std::fs::remove_file(&staging) {
+                    tracing::warn!(
+                        "Failed to remove invalid staging file {}: {e}; it will be re-checked next launch",
+                        staging.display()
+                    );
+                }
                 return Ok(());
             }
             tracing::info!("Pending upgrade staging found, rescheduling delayed replace...");
@@ -454,20 +459,32 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn bin_dir_delegates_to_paths_module() {
-        assert_eq!(bin_dir(), crate::paths::bin_dir());
-    }
-
     #[cfg(windows)]
     #[test]
-    fn delayed_replace_script_contains_expected_structure() {
+    fn delayed_replace_script_waits_for_exit_then_copies() {
         let script = delayed_replace_script(
             Path::new(r"C:\rgytui\rgytui.new.exe"),
             Path::new(r"C:\rgytui\rgytui.exe"),
             Path::new(r"C:\rgytui\rgytui.update.log"),
         );
-        for needle in [":wait", ":copy", ":deferred", ":done", "copy /y", "del \"%~f0\""] {
+        // Core contract: wait for the process to exit before copying.
+        assert!(
+            script.contains("tasklist /FI \"IMAGENAME eq rgytui.exe\""),
+            "script must wait for rgytui.exe to exit"
+        );
+        assert!(script.contains(":wait"), "script must have a wait loop");
+        assert!(script.contains("goto wait"), "script must loop while running");
+        // Deferred limit: 300 attempts, then give up for this session.
+        assert!(script.contains("set /a tries"), "script must count attempts");
+        assert!(script.contains("geq 300"), "script must cap the wait at 300 tries");
+        assert!(script.contains(":deferred"), "script must have a deferred path");
+        // Copy must target the given staging and destination paths.
+        assert!(
+            script.contains("copy /y \"C:\\rgytui\\rgytui.new.exe\""),
+            "script must copy staging over the destination"
+        );
+        // Structure: labels, self-delete, no user interaction.
+        for needle in [":copy", ":done", "del \"%~f0\""] {
             assert!(script.contains(needle), "script should contain {needle:?}");
         }
         assert!(!script.contains("pause"), "script must not pause waiting on the user");

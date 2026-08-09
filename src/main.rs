@@ -47,6 +47,8 @@ async fn main() -> Result<(), anyhow::Error> {
         .with_ansi(false)
         .init();
 
+    tracing::info!("rgytui v{} starting", env!("CARGO_PKG_VERSION"));
+
     let mut config = ConfigAdapter::new().await.context("Failed to load config")?;
     let settings = config.settings().clone();
     let ytdlp = YtDlpAdapter::new();

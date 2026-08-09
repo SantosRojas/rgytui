@@ -25,10 +25,14 @@ fn default_bin_dir() -> PathBuf {
     windows_bin_dir(Path::new(&local))
 }
 
+/// Fallback for targets that are not Linux, macOS, or Windows (e.g.
+/// FreeBSD): keep the unix-style `~/.local/bin` layout. Implemented
+/// inline (not via [`unix_bin_dir`]) because that helper is cfg-gated to
+/// Linux/macOS and would not compile on these targets.
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn default_bin_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    unix_bin_dir(Path::new(&home))
+    Path::new(&home).join(".local/bin")
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
