@@ -1942,10 +1942,12 @@ mod tests {
     async fn test_queue_play_resyncs_queue_indicator() {
         // queue_play is the source of truth for the queue indicator: whichever
         // song is queued for play, current_index must end up at its position.
-        let mut app = match build_test_app().await {
-            Some(a) => a,
-            None => return,
-        };
+        // Uses the audio mock so the test never skips on machines/CI without an
+        // audio device (this test touches no playback at all).
+        let mut app = build_test_app_with_audio_mock(Box::new(NoticeMockAudio::new(
+            RouteChangeNotice::ResumeAvailable,
+        )))
+        .await;
         app.playlist.add(song(1));
         app.playlist.add(song(2));
         app.playlist.add(song(3));
@@ -1965,11 +1967,12 @@ mod tests {
         // When the downloaded bytes for a song actually start playing, the
         // queue indicator must be re-synced to that song's position — even if
         // current_index was left pointing elsewhere by an earlier selection
-        // (e.g. a queue double-click while the download was in flight).
-        let mut app = match build_test_app().await {
-            Some(a) => a,
-            None => return,
-        };
+        // (e.g. a queue double-click while the download was in flight). Uses
+        // the audio mock so the test never skips in headless environments.
+        let mut app = build_test_app_with_audio_mock(Box::new(NoticeMockAudio::new(
+            RouteChangeNotice::ResumeAvailable,
+        )))
+        .await;
         app.playlist.add(song(1));
         app.playlist.add(song(2));
         app.playlist.add(song(3));
@@ -1987,6 +1990,39 @@ mod tests {
             app.playlist.playlist().current_index,
             2,
             "AudioReady must sync the queue indicator to the song that starts playing"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_video_stream_ready_resyncs_queue_indicator() {
+        // Video-mode half of the same desync fix: when the stream for a song
+        // actually starts (VideoStreamReady), the queue indicator must be
+        // re-synced to that song's position — even if current_index was left
+        // pointing elsewhere while the stream URL was resolving. The re-sync
+        // runs before play_video_stream, so the assertion holds whether or not
+        // mpv is installed (a missing mpv only turns the play into an error).
+        let mut app = build_test_app_from(
+            Box::new(NoticeMockAudio::new(RouteChangeNotice::ResumeAvailable)),
+            AudioMode::Video,
+        )
+        .await;
+        app.playlist.add(song(1));
+        app.playlist.add(song(2));
+        app.playlist.add(song(3));
+        app.playlist.set_current_index(0);
+        app.ui.player.current_song = Some(song(3));
+
+        app.handle_event(AppEvent::VideoStreamReady {
+            song: song(3),
+            stream_url: "http://example.com/stream".into(),
+            generation: 0,
+        })
+        .await;
+
+        assert_eq!(
+            app.playlist.playlist().current_index,
+            2,
+            "VideoStreamReady must sync the queue indicator to the song that starts playing"
         );
     }
 
