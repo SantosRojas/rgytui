@@ -8,6 +8,9 @@ use crate::domain::player_state::PlayerState;
 use crate::shared::spectrum::SpectrumFrame;
 
 /// Port for media search.
+// `async_trait` genera un `#[must_use]` sin mensaje sobre el future devuelto,
+// que ya es `#[must_use]` por ser `Pin<Box<dyn Future>>` (falso positivo de clippy).
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait MediaSearchPort: Send + Sync {
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<Song>, DomainError>;
@@ -60,6 +63,8 @@ pub trait AudioPlaybackPort: Send {
 }
 
 /// Port for downloading audio from URLs.
+// Ver nota sobre `clippy::double_must_use` en `MediaSearchPort`.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait DownloaderPort: Send + Sync {
     async fn get_stream_url(&self, url: &str, audio_only: bool) -> Result<String, DomainError>;
@@ -73,6 +78,8 @@ pub trait DownloaderPort: Send + Sync {
 }
 
 /// Port for loading/saving configuration and playlists.
+// Ver nota sobre `clippy::double_must_use` en `MediaSearchPort`.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait ConfigPort: Send {
     async fn load_settings(&self) -> Result<AppSettings, DomainError>;
