@@ -20,7 +20,10 @@ impl PlaylistUseCase {
     pub fn load(&mut self, playlist: Playlist) {
         self.playlist = playlist;
         if !self.playlist.songs.is_empty() {
-            self.playlist.current_index = self.playlist.current_index.min(self.playlist.songs.len() - 1);
+            self.playlist.current_index = self
+                .playlist
+                .current_index
+                .min(self.playlist.songs.len() - 1);
         } else {
             self.playlist.current_index = 0;
         }

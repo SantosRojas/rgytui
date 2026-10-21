@@ -2,15 +2,15 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, Paragraph, Widget};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Widget};
 
 use crate::infrastructure::audio::spectrum::BANDS;
 
 /// Vertical gradient overlay: colors shift towards warm tones near the top.
 const HEIGHT_COLORS: [(f32, Color); 3] = [
-    (0.85, Color::Rgb(255, 60, 60)),   // top: red (clipping zone)
-    (0.60, Color::Rgb(255, 190, 40)),   // upper-mid: amber
-    (0.00, Color::Rgb(0, 0, 0)),        // base: use per-band color
+    (0.85, Color::Rgb(255, 60, 60)),  // top: red (clipping zone)
+    (0.60, Color::Rgb(255, 190, 40)), // upper-mid: amber
+    (0.00, Color::Rgb(0, 0, 0)),      // base: use per-band color
 ];
 
 const PARTIAL_BLOCKS: [&str; 7] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇"];
@@ -26,7 +26,12 @@ pub struct SpectrumWidget {
 
 impl SpectrumWidget {
     pub fn new(bands: [f32; BANDS], peaks: [f32; BANDS], accent: Color) -> Self {
-        Self { bands, peaks, accent, show_block: true }
+        Self {
+            bands,
+            peaks,
+            accent,
+            show_block: true,
+        }
     }
 
     pub fn no_block(mut self) -> Self {
@@ -55,13 +60,13 @@ fn lerp_color(a: Color, b: Color, t: f32) -> Color {
 fn color_for_index(idx: usize, total: usize) -> Color {
     let t = idx as f32 / (total - 1).max(1) as f32;
     let anchors = [
-        Color::Rgb(60, 120, 255),   // Deep Blue
-        Color::Rgb(0, 220, 210),    // Cyan
-        Color::Rgb(50, 245, 100),   // Green
-        Color::Rgb(245, 200, 0),    // Yellow
-        Color::Rgb(255, 120, 0),    // Orange
-        Color::Rgb(255, 30, 90),    // Red
-        Color::Rgb(240, 20, 140),   // Magenta
+        Color::Rgb(60, 120, 255), // Deep Blue
+        Color::Rgb(0, 220, 210),  // Cyan
+        Color::Rgb(50, 245, 100), // Green
+        Color::Rgb(245, 200, 0),  // Yellow
+        Color::Rgb(255, 120, 0),  // Orange
+        Color::Rgb(255, 30, 90),  // Red
+        Color::Rgb(240, 20, 140), // Magenta
     ];
     let num_anchors = anchors.len();
     let pos = t * (num_anchors - 1) as f32;
@@ -162,9 +167,15 @@ impl Widget for SpectrumWidget {
                         spans.push(Span::styled(FULL_BLOCK, Style::default().fg(color)));
                     } else if fill > 0.0 {
                         let idx = ((fill * 8.0).floor() as usize).min(6);
-                        spans.push(Span::styled(PARTIAL_BLOCKS[idx], Style::default().fg(color)));
+                        spans.push(Span::styled(
+                            PARTIAL_BLOCKS[idx],
+                            Style::default().fg(color),
+                        ));
                     } else if peak_top >= row_f && peak_top < row_f + 1.0 {
-                        spans.push(Span::styled(PEAK_CHAR, Style::default().fg(Color::Rgb(180, 180, 220))));
+                        spans.push(Span::styled(
+                            PEAK_CHAR,
+                            Style::default().fg(Color::Rgb(180, 180, 220)),
+                        ));
                     } else {
                         spans.push(Span::styled(" ", Style::default()));
                     }

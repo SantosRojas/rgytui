@@ -140,22 +140,34 @@ mod tests {
         backend.child = Some(child);
 
         // Child handle must be stored after play_video semantics
-        assert!(backend.child.is_some(), "child should be stored in the adapter");
+        assert!(
+            backend.child.is_some(),
+            "child should be stored in the adapter"
+        );
 
         // The subprocess must be alive — verify by polling try_wait through the adapter
         if let Some(ref mut c) = backend.child {
             let alive = c.try_wait().expect("try_wait should not error");
-            assert!(alive.is_none(), "child process should be running in adapter");
+            assert!(
+                alive.is_none(),
+                "child process should be running in adapter"
+            );
         }
 
         // Clean up
         backend.stop().await.unwrap();
-        assert!(backend.child.is_none(), "child field should be None after stop");
+        assert!(
+            backend.child.is_none(),
+            "child field should be None after stop"
+        );
 
         // After stop, the process must be dead (stop() blocks until child exits,
         // but give the OS a moment to release the PID)
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert!(!process_exists(pid), "child process should be killed after stop");
+        assert!(
+            !process_exists(pid),
+            "child process should be killed after stop"
+        );
     }
 
     #[tokio::test]
@@ -171,7 +183,10 @@ mod tests {
         backend.child = Some(child);
         assert!(backend.stop().await.is_ok());
         // After stop, child field must be None (taken)
-        assert!(backend.child.is_none(), "child field should be None after stop");
+        assert!(
+            backend.child.is_none(),
+            "child field should be None after stop"
+        );
 
         // stop() now blocks until child exits via timeout(3s, child.wait()),
         // so the process should be reaped immediately after stop returns.
@@ -179,7 +194,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         // The process must no longer be running
-        assert!(!process_exists(pid), "child process should be killed after stop");
+        assert!(
+            !process_exists(pid),
+            "child process should be killed after stop"
+        );
     }
 
     #[tokio::test]
@@ -215,7 +233,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         // The process must no longer be running
-        assert!(!process_exists(pid), "child process should be killed after MpvAdapter::drop");
+        assert!(
+            !process_exists(pid),
+            "child process should be killed after MpvAdapter::drop"
+        );
     }
 
     #[tokio::test]

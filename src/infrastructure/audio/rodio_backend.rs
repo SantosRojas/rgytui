@@ -476,9 +476,17 @@ impl RodioAdapter {
         seek_to: f64,
     ) -> (PlayerState, Option<f64>, RouteChangeNotice) {
         if retained {
-            (PlayerState::Paused, Some(seek_to), RouteChangeNotice::ResumeAvailable)
+            (
+                PlayerState::Paused,
+                Some(seek_to),
+                RouteChangeNotice::ResumeAvailable,
+            )
         } else {
-            (PlayerState::Stopped, None, RouteChangeNotice::RestartRequired)
+            (
+                PlayerState::Stopped,
+                None,
+                RouteChangeNotice::RestartRequired,
+            )
         }
     }
 
@@ -660,7 +668,10 @@ impl AudioPlaybackPort for RodioAdapter {
             STALL_TIMEOUT
         );
         let seek_to = self.last_pos; // capture BEFORE recover resets tracking
-        self.recover_backend(seek_to, "Audio position frozen while playing; backend presumed dead")
+        self.recover_backend(
+            seek_to,
+            "Audio position frozen while playing; backend presumed dead",
+        )
     }
 }
 
@@ -675,16 +686,34 @@ impl AudioPlaybackPort for NoopAudioAdapter {
     fn play_bytes(&mut self, _data: Vec<u8>, _song: Song) -> Result<(), DomainError> {
         Err(DomainError::Audio("No audio output available".into()))
     }
-    fn pause(&mut self) -> Result<(), DomainError> { Ok(()) }
-    fn resume(&mut self) -> Result<(), DomainError> { Ok(()) }
-    fn stop(&mut self) -> Result<(), DomainError> { Ok(()) }
+    fn pause(&mut self) -> Result<(), DomainError> {
+        Ok(())
+    }
+    fn resume(&mut self) -> Result<(), DomainError> {
+        Ok(())
+    }
+    fn stop(&mut self) -> Result<(), DomainError> {
+        Ok(())
+    }
     fn set_volume(&mut self, _vol: f32) {}
-    fn volume(&self) -> f32 { 0.8 }
-    fn state(&self) -> PlayerState { PlayerState::Stopped }
-    fn current_position(&self) -> f64 { 0.0 }
-    fn current_duration(&self) -> f64 { 0.0 }
-    fn is_sink_empty(&self) -> bool { true }
-    fn get_spectrum(&self) -> SpectrumFrame { SpectrumFrame::default() }
+    fn volume(&self) -> f32 {
+        0.8
+    }
+    fn state(&self) -> PlayerState {
+        PlayerState::Stopped
+    }
+    fn current_position(&self) -> f64 {
+        0.0
+    }
+    fn current_duration(&self) -> f64 {
+        0.0
+    }
+    fn is_sink_empty(&self) -> bool {
+        true
+    }
+    fn get_spectrum(&self) -> SpectrumFrame {
+        SpectrumFrame::default()
+    }
     fn set_spectrum_enabled(&mut self, _enabled: bool) {}
 }
 
@@ -714,8 +743,7 @@ mod tests {
         let (state, resume_pos, notice) = RodioAdapter::route_change_plan(false, 42.5);
         assert_eq!(state, PlayerState::Stopped);
         assert_eq!(
-            resume_pos,
-            None,
+            resume_pos, None,
             "no retained bytes means no resume position is kept"
         );
         assert_eq!(notice, RouteChangeNotice::RestartRequired);
@@ -735,10 +763,22 @@ mod tests {
         // flowing: paused playback is covered by the stall watchdog on resume,
         // and an empty sink means the song ended naturally (auto-advance owns
         // the flow — recovering here would race it).
-        assert!(RodioAdapter::should_check_device(PlayerState::Playing, false));
-        assert!(!RodioAdapter::should_check_device(PlayerState::Playing, true));
-        assert!(!RodioAdapter::should_check_device(PlayerState::Paused, false));
-        assert!(!RodioAdapter::should_check_device(PlayerState::Stopped, false));
+        assert!(RodioAdapter::should_check_device(
+            PlayerState::Playing,
+            false
+        ));
+        assert!(!RodioAdapter::should_check_device(
+            PlayerState::Playing,
+            true
+        ));
+        assert!(!RodioAdapter::should_check_device(
+            PlayerState::Paused,
+            false
+        ));
+        assert!(!RodioAdapter::should_check_device(
+            PlayerState::Stopped,
+            false
+        ));
         assert!(!RodioAdapter::should_check_device(PlayerState::Idle, false));
     }
 
@@ -747,10 +787,16 @@ mod tests {
         // No recorded sink id (transient enumeration failure at open time):
         // the check stays inert even when the default later resolves —
         // there is no baseline to compare, so no spurious reopen.
-        assert!(!RodioAdapter::device_identity_changed(&None, &Some("current".into())));
+        assert!(!RodioAdapter::device_identity_changed(
+            &None,
+            &Some("current".into())
+        ));
         assert!(!RodioAdapter::device_identity_changed(&None, &None));
         // Recorded id but no current default: cannot prove a change, inert.
-        assert!(!RodioAdapter::device_identity_changed(&Some("previous".into()), &None));
+        assert!(!RodioAdapter::device_identity_changed(
+            &Some("previous".into()),
+            &None
+        ));
         // Same id: no change. Different id: route switch detected.
         assert!(!RodioAdapter::device_identity_changed(
             &Some("speakers".into()),

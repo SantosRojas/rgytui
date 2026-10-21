@@ -7,9 +7,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
 
 use crate::application::ports::I18nPort;
+use crate::domain::audio_mode::AudioMode;
 use crate::domain::media::RepeatMode;
 use crate::domain::player_state::PlayerState;
-use crate::domain::audio_mode::AudioMode;
 use crate::interface::i18n::Translations;
 use crate::interface::state::Focus;
 use crate::interface::theme::Theme;
@@ -81,15 +81,26 @@ impl Widget for StatusBar {
 
         let state_label = match self.player_state {
             PlayerState::Idle => Span::styled(t("status_idle"), Style::default().fg(th.text_muted)),
-            PlayerState::Loading => Span::styled(t("status_loading"), Style::default().fg(th.warning)),
-            PlayerState::Playing => Span::styled(t("status_playing"), Style::default().fg(th.success)),
-            PlayerState::Paused => Span::styled(t("status_paused"), Style::default().fg(th.warning)),
-            PlayerState::Stopped => Span::styled(t("status_stopped"), Style::default().fg(th.error)),
+            PlayerState::Loading => {
+                Span::styled(t("status_loading"), Style::default().fg(th.warning))
+            }
+            PlayerState::Playing => {
+                Span::styled(t("status_playing"), Style::default().fg(th.success))
+            }
+            PlayerState::Paused => {
+                Span::styled(t("status_paused"), Style::default().fg(th.warning))
+            }
+            PlayerState::Stopped => {
+                Span::styled(t("status_stopped"), Style::default().fg(th.error))
+            }
         };
 
         let mode_label = match self.audio_mode {
             AudioMode::Audio => Span::styled(t("status_audio"), Style::default().fg(th.accent)),
-            AudioMode::Video => Span::styled(t("status_video"), Style::default().fg(Color::Rgb(200, 120, 255))),
+            AudioMode::Video => Span::styled(
+                t("status_video"),
+                Style::default().fg(Color::Rgb(200, 120, 255)),
+            ),
         };
 
         let repeat_span = Span::styled(
@@ -128,16 +139,10 @@ impl Widget for StatusBar {
                 Style::default().fg(th.accent),
             ),
             sep,
-            Span::styled(t("hint_general"),
-                Style::default().fg(th.text_muted),
-            ),
+            Span::styled(t("hint_general"), Style::default().fg(th.text_muted)),
         ]);
 
-        let block = Block::default().style(
-            Style::default()
-                .fg(th.text)
-                .bg(th.panel_bg),
-        );
+        let block = Block::default().style(Style::default().fg(th.text).bg(th.panel_bg));
 
         let paragraph = Paragraph::new(line).block(block);
         paragraph.render(area, buf);

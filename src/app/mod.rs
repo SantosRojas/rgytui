@@ -2,9 +2,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::layout::Rect;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{Semaphore, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::application::playback::PlaybackUseCase;
@@ -15,18 +17,20 @@ pub(crate) use crate::domain::audio_mode::AudioMode;
 pub(crate) use crate::domain::media::RepeatMode;
 pub(crate) use crate::domain::media::Song;
 pub(crate) use crate::domain::player_state::PlayerState;
-pub(crate) use crate::infrastructure::audio::cache::AudioCache;
 use crate::domain::settings::AppSettings;
+pub(crate) use crate::infrastructure::audio::cache::AudioCache;
 use crate::interface::app_ui;
-pub(crate) use crate::interface::state::{ActiveScreen, ConfigState, Focus, NotificationLevel, RenderSnapshot, UiState};
+pub(crate) use crate::interface::state::{
+    ActiveScreen, ConfigState, Focus, NotificationLevel, RenderSnapshot, UiState,
+};
 pub(crate) use crate::shared::event::AppEvent;
 use crate::shared::event::InputEvent;
 
+pub mod background;
+pub mod event_handler;
+pub mod key_handler;
 pub mod lifecycle;
 pub mod sync;
-pub mod event_handler;
-pub mod background;
-pub mod key_handler;
 
 use self::lifecycle::TerminalGuard;
 
@@ -84,32 +88,39 @@ impl App {
         std::thread::spawn(move || {
             let max_restarts = 3;
             for restart in 0..=max_restarts {
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| loop {
-                    match crossterm::event::read() {
-                        Ok(crossterm::event::Event::Key(key)) => {
-                            if key.kind != KeyEventKind::Press {
-                                continue;
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    loop {
+                        match crossterm::event::read() {
+                            Ok(crossterm::event::Event::Key(key)) => {
+                                if key.kind != KeyEventKind::Press {
+                                    continue;
+                                }
+                                if input_tx.blocking_send(InputEvent::Key(key)).is_err() {
+                                    break;
+                                }
                             }
-                            if input_tx.blocking_send(InputEvent::Key(key)).is_err() {
+                            Ok(crossterm::event::Event::Mouse(mouse))
+                                if input_tx.blocking_send(InputEvent::Mouse(mouse)).is_err() =>
+                            {
                                 break;
                             }
-                        }
-                        Ok(crossterm::event::Event::Mouse(mouse))
-                            if input_tx.blocking_send(InputEvent::Mouse(mouse)).is_err() => {
-                                break;
+                            Ok(_) => {}
+                            Err(e) => {
+                                // Terminal read error — log, sleep briefly, and retry
+                                tracing::warn!("Input thread read error: {e}");
+                                std::thread::sleep(std::time::Duration::from_millis(100));
                             }
-                        Ok(_) => {}
-                        Err(e) => {
-                            // Terminal read error — log, sleep briefly, and retry
-                            tracing::warn!("Input thread read error: {e}");
-                            std::thread::sleep(std::time::Duration::from_millis(100));
                         }
                     }
                 }));
                 if result.is_ok() {
                     break; // thread exited cleanly (channel closed)
                 }
-                tracing::warn!("Input thread panicked (attempt {}/{}), restarting", restart + 1, max_restarts);
+                tracing::warn!(
+                    "Input thread panicked (attempt {}/{}), restarting",
+                    restart + 1,
+                    max_restarts
+                );
                 std::thread::sleep(std::time::Duration::from_millis(200));
             }
         });
@@ -157,7 +168,8 @@ impl App {
         {
             ui.push_notification(
                 "⚠ yt-dlp is not installed. Search, download, and playback will not work. \
-                 Install it from https://github.com/yt-dlp/yt-dlp".into(),
+                 Install it from https://github.com/yt-dlp/yt-dlp"
+                    .into(),
                 NotificationLevel::Warning,
             );
         }
@@ -202,7 +214,6 @@ impl App {
             panel_rects: HashMap::new(),
         }
     }
-
 }
 
 impl App {
@@ -217,9 +228,9 @@ impl App {
         let (sigterm_tx, mut sigterm_rx) = tokio::sync::oneshot::channel::<()>();
         #[cfg(unix)]
         tokio::spawn(async move {
-            if let Ok(mut sig) = tokio::signal::unix::signal(
-                tokio::signal::unix::SignalKind::terminate(),
-            ) {
+            if let Ok(mut sig) =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            {
                 sig.recv().await;
                 let _ = sigterm_tx.send(());
             }
@@ -238,7 +249,13 @@ impl App {
             let theme = self.ui.get_or_create_theme();
             let render_state = RenderSnapshot::from_use_cases(&self.playback, &mut self.playlist);
             terminal.draw(|frame| {
-                app_ui::render(frame, &self.ui, &render_state, &theme, &mut self.panel_rects);
+                app_ui::render(
+                    frame,
+                    &self.ui,
+                    &render_state,
+                    &theme,
+                    &mut self.panel_rects,
+                );
             })?;
 
             if self.handle_pending_play().await {
@@ -325,36 +342,40 @@ impl App {
                 if self.ui.show_upgrade_popup
                     && let Some(pr) = self.panel_rects.get("upgrade_popup")
                 {
-                        let hit = row >= pr.y && row < pr.y + pr.height
-                            && col >= pr.x && col < pr.x + pr.width;
-                        if hit {
-                            // Button row is y+3 (top border + 2 content lines)
-                            if row == pr.y + 3 {
-                                let mid = pr.x + pr.width / 2;
-                                if col < mid {
-                                    self.ui.upgrade_selection = crate::interface::state::UpgradeChoice::Yes;
-                                } else {
-                                    self.ui.upgrade_selection = crate::interface::state::UpgradeChoice::No;
-                                }
-                                // Use key handler's Enter logic
-                                match self.ui.upgrade_selection {
-                                    crate::interface::state::UpgradeChoice::Yes => self.start_upgrade(),
-                                    crate::interface::state::UpgradeChoice::No => {
-                                        self.ui.show_upgrade_popup = false;
-                                        self.ui.pending_upgrade = None;
-                                    }
+                    let hit = row >= pr.y
+                        && row < pr.y + pr.height
+                        && col >= pr.x
+                        && col < pr.x + pr.width;
+                    if hit {
+                        // Button row is y+3 (top border + 2 content lines)
+                        if row == pr.y + 3 {
+                            let mid = pr.x + pr.width / 2;
+                            if col < mid {
+                                self.ui.upgrade_selection =
+                                    crate::interface::state::UpgradeChoice::Yes;
+                            } else {
+                                self.ui.upgrade_selection =
+                                    crate::interface::state::UpgradeChoice::No;
+                            }
+                            // Use key handler's Enter logic
+                            match self.ui.upgrade_selection {
+                                crate::interface::state::UpgradeChoice::Yes => self.start_upgrade(),
+                                crate::interface::state::UpgradeChoice::No => {
+                                    self.ui.show_upgrade_popup = false;
+                                    self.ui.pending_upgrade = None;
                                 }
                             }
-                            // Click consumed — don't fall through to panels below
-                            return;
                         }
+                        // Click consumed — don't fall through to panels below
+                        return;
                     }
+                }
 
                 // Phase 1: resolve click target using rects (immutable borrow only)
                 enum HitTarget {
                     SearchInput,
-                    SearchResults(usize),  // resolved index
-                    QueueItem(usize),       // resolved index
+                    SearchResults(usize), // resolved index
+                    QueueItem(usize),     // resolved index
                     Outside,
                 }
 
@@ -362,8 +383,10 @@ impl App {
                     let rects = &self.panel_rects;
 
                     let hit = |rect: &Rect| -> bool {
-                        row >= rect.y && row < rect.y + rect.height
-                            && col >= rect.x && col < rect.x + rect.width
+                        row >= rect.y
+                            && row < rect.y + rect.height
+                            && col >= rect.x
+                            && col < rect.x + rect.width
                     };
 
                     let resolve_idx = |rect: &Rect, selected: usize, count: usize| -> usize {
@@ -390,12 +413,20 @@ impl App {
                     } else if let Some(r) = rects.get("search_results")
                         && hit(r)
                     {
-                        let idx = resolve_idx(r, self.ui.search.selected_index, self.ui.search.search_results.len());
+                        let idx = resolve_idx(
+                            r,
+                            self.ui.search.selected_index,
+                            self.ui.search.search_results.len(),
+                        );
                         HitTarget::SearchResults(idx)
                     } else if let Some(r) = rects.get("queue")
                         && hit(r)
                     {
-                        let idx = resolve_idx(r, self.ui.queue.queue_selected, self.playlist.songs().len());
+                        let idx = resolve_idx(
+                            r,
+                            self.ui.queue.queue_selected,
+                            self.playlist.songs().len(),
+                        );
                         HitTarget::QueueItem(idx)
                     } else {
                         HitTarget::Outside
@@ -476,7 +507,6 @@ impl App {
             }
         }
     }
-
 }
 
 /// Scan the OS temp directory for orphaned rgytui temp files older than 1 hour and delete them.
@@ -535,12 +565,11 @@ fn cleanup_tempfiles_in_dir<P: AsRef<std::path::Path>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-    use ratatui::layout::Rect;
     use crate::application::playback::PlaybackUseCase;
     use crate::application::playlist::PlaylistUseCase;
-    use crate::application::ports::{AudioPlaybackPort, ConfigPort, DownloaderPort, MediaSearchPort};
+    use crate::application::ports::{
+        AudioPlaybackPort, ConfigPort, DownloaderPort, MediaSearchPort,
+    };
     use crate::application::search::SearchUseCase;
     use crate::domain::error::DomainError;
     use crate::domain::media::Song;
@@ -548,6 +577,11 @@ mod tests {
     use crate::infrastructure::audio::rodio_backend::RodioAdapter;
     use crate::infrastructure::ytdlp::client::YtDlpAdapter;
     use crate::interface::i18n::Translations;
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    use ratatui::layout::Rect;
+    use std::sync::Arc;
 
     // Helper: create a file in the given directory with the given name
     fn create_file(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
@@ -567,14 +601,23 @@ mod tests {
         let other_path = create_file(dir_path, "other-test.tmp");
 
         // Both exist before cleanup
-        assert!(rgytui_path.exists(), "rgytui file should exist before cleanup");
-        assert!(other_path.exists(), "other file should exist before cleanup");
+        assert!(
+            rgytui_path.exists(),
+            "rgytui file should exist before cleanup"
+        );
+        assert!(
+            other_path.exists(),
+            "other file should exist before cleanup"
+        );
 
         // Run cleanup with max_age = 0 (deletes any rgytui-* file)
         cleanup_tempfiles_in_dir(dir_path, std::time::Duration::ZERO).unwrap();
 
         // rgytui file deleted, other file preserved
-        assert!(!rgytui_path.exists(), "rgytui-prefixed file should be deleted");
+        assert!(
+            !rgytui_path.exists(),
+            "rgytui-prefixed file should be deleted"
+        );
         assert!(other_path.exists(), "non-rgytui file should NOT be deleted");
     }
 
@@ -591,14 +634,20 @@ mod tests {
         let longer = create_file(dir_path, "rgytui-mydata.tmp");
 
         // All exist before
-        assert!(no_hyphen.exists(), "rgytui (no hyphen) should exist before cleanup");
+        assert!(
+            no_hyphen.exists(),
+            "rgytui (no hyphen) should exist before cleanup"
+        );
         assert!(with_hyphen.exists(), "rgytui- should exist before cleanup");
         assert!(longer.exists(), "rgytui-mydata should exist before cleanup");
 
         cleanup_tempfiles_in_dir(dir_path, std::time::Duration::ZERO).unwrap();
 
         // Only files starting with "rgytui-" are deleted
-        assert!(no_hyphen.exists(), "'rgytui' (no hyphen) should NOT be deleted");
+        assert!(
+            no_hyphen.exists(),
+            "'rgytui' (no hyphen) should NOT be deleted"
+        );
         assert!(!with_hyphen.exists(), "'rgytui-' should be deleted");
         assert!(!longer.exists(), "'rgytui-mydata' should be deleted");
     }
@@ -611,12 +660,20 @@ mod tests {
             tmp.path().join("nonexistent-subdir")
         }; // tmp dropped → dir deleted, path guaranteed nonexistent
         let result = cleanup_tempfiles_in_dir(&bad_path, std::time::Duration::ZERO);
-        assert!(result.is_ok(), "cleanup on missing dir should return Ok, got {:?}", result);
+        assert!(
+            result.is_ok(),
+            "cleanup on missing dir should return Ok, got {:?}",
+            result
+        );
 
         // Empty directory — should not panic, Ok(())
         let empty_dir = tempfile::tempdir().unwrap();
         let result = cleanup_tempfiles_in_dir(empty_dir.path(), std::time::Duration::ZERO);
-        assert!(result.is_ok(), "cleanup on empty dir should return Ok, got {:?}", result);
+        assert!(
+            result.is_ok(),
+            "cleanup on empty dir should return Ok, got {:?}",
+            result
+        );
     }
 
     /// Helper to build a test App. Returns None if audio device isn't available.
@@ -671,7 +728,9 @@ mod tests {
 
     impl NoticeMockAudio {
         fn new(notice: RouteChangeNotice) -> Self {
-            Self { notice: Some(notice) }
+            Self {
+                notice: Some(notice),
+            }
         }
     }
 
@@ -796,7 +855,10 @@ mod tests {
         app.update_progress().await;
 
         // Guard should prevent auto-advance: no pending play
-        assert!(app.pending_play.is_none(), "no auto-advance when no song loaded");
+        assert!(
+            app.pending_play.is_none(),
+            "no auto-advance when no song loaded"
+        );
     }
 
     // ── CancellationToken (Task 2.1) ──────────────────────────────────
@@ -810,8 +872,10 @@ mod tests {
                 return;
             }
         };
-        assert!(!app.cancel_token.is_cancelled(),
-            "CancellationToken should NOT be cancelled immediately after creation");
+        assert!(
+            !app.cancel_token.is_cancelled(),
+            "CancellationToken should NOT be cancelled immediately after creation"
+        );
     }
 
     // ── Ctrl+C / Exit Confirmation (Task 2.3) ────────────────────────
@@ -828,7 +892,10 @@ mod tests {
 
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         let result = app.handle_key(ctrl_c).await.unwrap();
-        assert!(result, "Ctrl+C should return Ok(true) to signal exit when no download active");
+        assert!(
+            result,
+            "Ctrl+C should return Ok(true) to signal exit when no download active"
+        );
     }
 
     #[tokio::test]
@@ -854,13 +921,19 @@ mod tests {
 
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         let result = app.handle_key(ctrl_c).await.unwrap();
-        assert!(!result, "Ctrl+C with active download should NOT signal exit");
+        assert!(
+            !result,
+            "Ctrl+C with active download should NOT signal exit"
+        );
 
         // The event is sent to the channel; event_handler will process it in the main loop.
         // Try to receive it to verify it was sent (recv_timeout with zero delay = peek)
         let event = app.event_rx.try_recv().ok();
-        assert!(matches!(event, Some(AppEvent::ShowConfirmExit)),
-            "key_handler should send ShowConfirmExit event, got {:?}", event);
+        assert!(
+            matches!(event, Some(AppEvent::ShowConfirmExit)),
+            "key_handler should send ShowConfirmExit event, got {:?}",
+            event
+        );
     }
 
     #[tokio::test]
@@ -884,19 +957,28 @@ mod tests {
         };
         app.ui.download.download_pending = Some((song, "dir".into(), "mp3".into()));
 
-        assert!(!app.ui.show_exit_confirmation, "flag should be false before Ctrl+C");
+        assert!(
+            !app.ui.show_exit_confirmation,
+            "flag should be false before Ctrl+C"
+        );
 
         // Process manually: key_handler sends event, event_handler processes it
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         let result = app.handle_key(ctrl_c).await.unwrap();
-        assert!(!result, "Ctrl+C with download_pending should NOT signal exit");
+        assert!(
+            !result,
+            "Ctrl+C with download_pending should NOT signal exit"
+        );
 
         // The key_handler sent ShowConfirmExit to event_tx.
         // Let's process it by calling handle_event directly on what was sent.
         // Since we can't easily peek the channel, we manually set the flag
         // to verify the event_handler handles it correctly.
         app.handle_event(AppEvent::ShowConfirmExit).await;
-        assert!(app.ui.show_exit_confirmation, "flag should be true after ShowConfirmExit");
+        assert!(
+            app.ui.show_exit_confirmation,
+            "flag should be true after ShowConfirmExit"
+        );
     }
 
     #[tokio::test]
@@ -915,7 +997,10 @@ mod tests {
         let y_key = KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE);
         let result = app.handle_key(y_key).await.unwrap();
         assert!(result, "'y' in confirmation mode should signal exit");
-        assert!(!app.ui.show_exit_confirmation, "flag should be cleared after 'y'");
+        assert!(
+            !app.ui.show_exit_confirmation,
+            "flag should be cleared after 'y'"
+        );
     }
 
     #[tokio::test]
@@ -934,7 +1019,10 @@ mod tests {
         let n_key = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
         let result = app.handle_key(n_key).await.unwrap();
         assert!(!result, "'n' in confirmation mode should NOT signal exit");
-        assert!(!app.ui.show_exit_confirmation, "flag should be cleared after 'n'");
+        assert!(
+            !app.ui.show_exit_confirmation,
+            "flag should be cleared after 'n'"
+        );
     }
 
     #[tokio::test]
@@ -953,7 +1041,10 @@ mod tests {
         let esc_key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
         let result = app.handle_key(esc_key).await.unwrap();
         assert!(!result, "Esc in confirmation mode should NOT signal exit");
-        assert!(!app.ui.show_exit_confirmation, "flag should be cleared after Esc");
+        assert!(
+            !app.ui.show_exit_confirmation,
+            "flag should be cleared after Esc"
+        );
     }
 
     #[tokio::test]
@@ -971,8 +1062,14 @@ mod tests {
         // Press an unrelated key — should NOT signal exit, AND flag should persist
         let space_key = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
         let result = app.handle_key(space_key).await.unwrap();
-        assert!(!result, "unrelated key in confirmation mode should NOT signal exit");
-        assert!(app.ui.show_exit_confirmation, "flag should persist after unrelated key");
+        assert!(
+            !result,
+            "unrelated key in confirmation mode should NOT signal exit"
+        );
+        assert!(
+            app.ui.show_exit_confirmation,
+            "flag should persist after unrelated key"
+        );
     }
 
     #[tokio::test]
@@ -1029,8 +1126,12 @@ mod tests {
         app.ui.player.current_song = Some(song);
 
         // Send PlaybackHealthError (live backend error, e.g. watchdog)
-        app.handle_event(AppEvent::PlaybackHealthError("Something went wrong".into())).await;
-        assert!(app.ui.player.current_song.is_none(), "current_song should be cleared after error");
+        app.handle_event(AppEvent::PlaybackHealthError("Something went wrong".into()))
+            .await;
+        assert!(
+            app.ui.player.current_song.is_none(),
+            "current_song should be cleared after error"
+        );
     }
 
     #[tokio::test]
@@ -1057,7 +1158,10 @@ mod tests {
             generation: 0,
         })
         .await;
-        assert!(app.ui.player.current_song.is_none(), "current_song should be cleared after download error");
+        assert!(
+            app.ui.player.current_song.is_none(),
+            "current_song should be cleared after download error"
+        );
     }
 
     #[tokio::test]
@@ -1085,7 +1189,8 @@ mod tests {
         app.playlist.set_current_index(0);
 
         // Simulate an error (live backend error clears current_song)
-        app.handle_event(AppEvent::PlaybackHealthError("Failed".into())).await;
+        app.handle_event(AppEvent::PlaybackHealthError("Failed".into()))
+            .await;
         assert!(app.ui.player.current_song.is_none());
 
         // Now simulate re-selecting the same song: call schedule_play_selected
@@ -1109,9 +1214,15 @@ mod tests {
         app.ui.search.search_results = songs(5);
         app.ui.search.selected_index = 1;
 
-        let result = app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).await.unwrap();
+        let result = app
+            .handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE))
+            .await
+            .unwrap();
         assert!(!result, "j should not signal exit");
-        assert_eq!(app.ui.search.selected_index, 2, "j should increment selected_index");
+        assert_eq!(
+            app.ui.search.selected_index, 2,
+            "j should increment selected_index"
+        );
     }
 
     #[tokio::test]
@@ -1124,8 +1235,13 @@ mod tests {
         app.ui.search.search_results = songs(5);
         app.ui.search.selected_index = 3;
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.search.selected_index, 2, "k should decrement selected_index");
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.search.selected_index, 2,
+            "k should decrement selected_index"
+        );
     }
 
     #[tokio::test]
@@ -1140,8 +1256,13 @@ mod tests {
         }
         app.ui.queue.queue_selected = 1;
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.queue.queue_selected, 2, "j in queue should increment queue_selected");
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.queue.queue_selected, 2,
+            "j in queue should increment queue_selected"
+        );
     }
 
     #[tokio::test]
@@ -1156,8 +1277,13 @@ mod tests {
         }
         app.ui.queue.queue_selected = 3;
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.queue.queue_selected, 2, "k in queue should decrement queue_selected");
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.queue.queue_selected, 2,
+            "k in queue should decrement queue_selected"
+        );
     }
 
     #[tokio::test]
@@ -1169,8 +1295,13 @@ mod tests {
         app.ui.focus = Focus::SearchInput;
         app.ui.search.search_query.clear();
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.search.search_query, "j", "j in SearchInput should type 'j'");
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.search.search_query, "j",
+            "j in SearchInput should type 'j'"
+        );
     }
 
     #[tokio::test]
@@ -1182,8 +1313,13 @@ mod tests {
         app.ui.focus = Focus::SearchInput;
         app.ui.search.search_query.clear();
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.search.search_query, "k", "k in SearchInput should type 'k'");
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.search.search_query, "k",
+            "k in SearchInput should type 'k'"
+        );
     }
 
     #[tokio::test]
@@ -1196,8 +1332,13 @@ mod tests {
         app.ui.search.search_results = songs(3);
         app.ui.search.selected_index = 2; // last item
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.search.selected_index, 2, "j at bottom should not overflow");
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.search.selected_index, 2,
+            "j at bottom should not overflow"
+        );
     }
 
     #[tokio::test]
@@ -1210,8 +1351,13 @@ mod tests {
         app.ui.search.search_results = songs(3);
         app.ui.search.selected_index = 0;
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.search.selected_index, 0, "k at top should not underflow");
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.search.selected_index, 0,
+            "k at top should not underflow"
+        );
     }
 
     // ── Task 3.2: g/G top/bottom navigation ─────────────────────────────────
@@ -1226,7 +1372,9 @@ mod tests {
         app.ui.search.search_results = songs(10);
         app.ui.search.selected_index = 7;
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)).await.unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE))
+            .await
+            .unwrap();
         assert_eq!(app.ui.search.selected_index, 0, "g should go to index 0");
     }
 
@@ -1240,7 +1388,9 @@ mod tests {
         app.ui.search.search_results = songs(10);
         app.ui.search.selected_index = 0;
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE)).await.unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE))
+            .await
+            .unwrap();
         assert_eq!(app.ui.search.selected_index, 9, "G should go to last index");
     }
 
@@ -1256,8 +1406,13 @@ mod tests {
         }
         app.ui.queue.queue_selected = 5;
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.queue.queue_selected, 0, "g in queue should go to index 0");
+        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.queue.queue_selected, 0,
+            "g in queue should go to index 0"
+        );
     }
 
     #[tokio::test]
@@ -1272,8 +1427,13 @@ mod tests {
         }
         app.ui.queue.queue_selected = 0;
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.queue.queue_selected, 9, "G in queue should go to last index");
+        app.handle_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.queue.queue_selected, 9,
+            "G in queue should go to last index"
+        );
     }
 
     #[tokio::test]
@@ -1285,8 +1445,13 @@ mod tests {
         app.ui.focus = Focus::SearchResults;
         // empty search_results
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.search.selected_index, 0, "g on empty list should not panic");
+        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.search.selected_index, 0,
+            "g on empty list should not panic"
+        );
     }
 
     #[tokio::test]
@@ -1298,8 +1463,13 @@ mod tests {
         app.ui.focus = Focus::SearchResults;
         // empty search_results
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.search.selected_index, 0, "G on empty list should not panic");
+        app.handle_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.search.selected_index, 0,
+            "G on empty list should not panic"
+        );
     }
 
     #[tokio::test]
@@ -1311,8 +1481,13 @@ mod tests {
         app.ui.focus = Focus::SearchInput;
         app.ui.search.search_query.clear();
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.search.search_query, "g", "g in SearchInput should type 'g'");
+        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.search.search_query, "g",
+            "g in SearchInput should type 'g'"
+        );
     }
 
     // ── Task 3.3: Ctrl+u / Ctrl+d half-page scroll ─────────────────────────
@@ -1329,7 +1504,10 @@ mod tests {
 
         let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
         app.handle_key(ctrl_d).await.unwrap();
-        assert_eq!(app.ui.search.selected_index, 10, "Ctrl+d should scroll down 10");
+        assert_eq!(
+            app.ui.search.selected_index, 10,
+            "Ctrl+d should scroll down 10"
+        );
     }
 
     #[tokio::test]
@@ -1344,7 +1522,10 @@ mod tests {
 
         let ctrl_u = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL);
         app.handle_key(ctrl_u).await.unwrap();
-        assert_eq!(app.ui.search.selected_index, 15, "Ctrl+u should scroll up 10");
+        assert_eq!(
+            app.ui.search.selected_index, 15,
+            "Ctrl+u should scroll up 10"
+        );
     }
 
     #[tokio::test]
@@ -1361,9 +1542,15 @@ mod tests {
         let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
         app.handle_key(ctrl_d).await.unwrap();
         // Ctrl+d should scroll, NOT trigger download popup
-        assert!(!app.ui.download.show_download_popup, "Ctrl+d should NOT trigger download popup");
+        assert!(
+            !app.ui.download.show_download_popup,
+            "Ctrl+d should NOT trigger download popup"
+        );
         // selected should be clamped to last item (9)
-        assert_eq!(app.ui.search.selected_index, 9, "Ctrl+d should scroll, clamped to max");
+        assert_eq!(
+            app.ui.search.selected_index, 9,
+            "Ctrl+d should scroll, clamped to max"
+        );
     }
 
     #[tokio::test]
@@ -1377,8 +1564,13 @@ mod tests {
         app.ui.search.selected_index = 2;
 
         // Regular 'd' (no Ctrl) should still trigger download popup
-        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)).await.unwrap();
-        assert!(app.ui.download.show_download_popup, "plain d should trigger download popup");
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert!(
+            app.ui.download.show_download_popup,
+            "plain d should trigger download popup"
+        );
     }
 
     #[tokio::test]
@@ -1394,7 +1586,10 @@ mod tests {
         let ctrl_u = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL);
         app.handle_key(ctrl_u).await.unwrap();
         // 2 - 10 = 0 (saturating)
-        assert_eq!(app.ui.search.selected_index, 0, "Ctrl+u near top should saturate at 0");
+        assert_eq!(
+            app.ui.search.selected_index, 0,
+            "Ctrl+u near top should saturate at 0"
+        );
     }
 
     // ── Task 3.4: Shift+Tab reverse focus cycling ──────────────────────────
@@ -1407,7 +1602,9 @@ mod tests {
         };
         app.ui.focus = Focus::SearchInput;
 
-        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE)).await.unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE))
+            .await
+            .unwrap();
         assert_eq!(app.ui.focus, Focus::QueueList);
     }
 
@@ -1419,7 +1616,9 @@ mod tests {
         };
         app.ui.focus = Focus::SearchResults;
 
-        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE)).await.unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE))
+            .await
+            .unwrap();
         assert_eq!(app.ui.focus, Focus::SearchInput);
     }
 
@@ -1431,7 +1630,9 @@ mod tests {
         };
         app.ui.focus = Focus::QueueList;
 
-        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE)).await.unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE))
+            .await
+            .unwrap();
         assert_eq!(app.ui.focus, Focus::SearchResults);
     }
 
@@ -1443,7 +1644,9 @@ mod tests {
         };
         app.ui.focus = Focus::SearchInput;
 
-        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).await.unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE))
+            .await
+            .unwrap();
         assert_eq!(app.ui.focus, Focus::SearchResults);
     }
 
@@ -1458,8 +1661,14 @@ mod tests {
         app.ui.active_screen = ActiveScreen::Search;
         app.ui.focus = Focus::SearchResults;
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.active_screen, ActiveScreen::Help, "h from search should toggle help ON");
+        app.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.active_screen,
+            ActiveScreen::Help,
+            "h from search should toggle help ON"
+        );
     }
 
     #[tokio::test]
@@ -1472,8 +1681,13 @@ mod tests {
         app.ui.active_screen = ActiveScreen::Search;
         app.ui.search.search_query.clear();
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.search.search_query, "h", "h in SearchInput should type 'h'");
+        app.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.search.search_query, "h",
+            "h in SearchInput should type 'h'"
+        );
     }
 
     // ── Task 3.6: Player q exits to search ─────────────────────────────────
@@ -1486,10 +1700,21 @@ mod tests {
         };
         app.ui.active_screen = ActiveScreen::Player;
 
-        let result = app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)).await.unwrap();
+        let result = app
+            .handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE))
+            .await
+            .unwrap();
         assert!(!result, "q in player should not exit app");
-        assert_eq!(app.ui.active_screen, ActiveScreen::Search, "q in player should go to Search");
-        assert_eq!(app.ui.focus, Focus::SearchInput, "q in player should set focus to SearchInput");
+        assert_eq!(
+            app.ui.active_screen,
+            ActiveScreen::Search,
+            "q in player should go to Search"
+        );
+        assert_eq!(
+            app.ui.focus,
+            Focus::SearchInput,
+            "q in player should set focus to SearchInput"
+        );
     }
 
     // ── Task 3.7: Help screen restricted exit ──────────────────────────────
@@ -1502,9 +1727,16 @@ mod tests {
         };
         app.ui.active_screen = ActiveScreen::Help;
 
-        let result = app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)).await.unwrap();
+        let result = app
+            .handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE))
+            .await
+            .unwrap();
         assert!(!result, "q in help should NOT exit app (should close help)");
-        assert_eq!(app.ui.active_screen, ActiveScreen::Search, "q in help should close to Search");
+        assert_eq!(
+            app.ui.active_screen,
+            ActiveScreen::Search,
+            "q in help should close to Search"
+        );
     }
 
     #[tokio::test]
@@ -1515,8 +1747,14 @@ mod tests {
         };
         app.ui.active_screen = ActiveScreen::Help;
 
-        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.active_screen, ActiveScreen::Search, "Esc in help should close to Search");
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.active_screen,
+            ActiveScreen::Search,
+            "Esc in help should close to Search"
+        );
     }
 
     #[tokio::test]
@@ -1527,8 +1765,14 @@ mod tests {
         };
         app.ui.active_screen = ActiveScreen::Help;
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.active_screen, ActiveScreen::Help, "? should be silently ignored (only h opens help)");
+        app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.active_screen,
+            ActiveScreen::Help,
+            "? should be silently ignored (only h opens help)"
+        );
     }
 
     #[tokio::test]
@@ -1539,8 +1783,14 @@ mod tests {
         };
         app.ui.active_screen = ActiveScreen::Help;
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)).await.unwrap();
-        assert_eq!(app.ui.active_screen, ActiveScreen::Search, "h in help should close to Search");
+        app.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert_eq!(
+            app.ui.active_screen,
+            ActiveScreen::Search,
+            "h in help should close to Search"
+        );
     }
 
     #[tokio::test]
@@ -1551,7 +1801,9 @@ mod tests {
         };
         app.ui.active_screen = ActiveScreen::Help;
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)).await.unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE))
+            .await
+            .unwrap();
         assert_eq!(
             app.ui.active_screen,
             ActiveScreen::Help,
@@ -1581,14 +1833,29 @@ mod tests {
         app.ui.focus = Focus::SearchInput;
         app.panel_rects.insert(
             "search_results".to_string(),
-            Rect { x: 0, y: 3, width: 100, height: 30 },
+            Rect {
+                x: 0,
+                y: 3,
+                width: 100,
+                height: 30,
+            },
         );
 
         app.handle_mouse(click(10, 5));
 
-        assert_eq!(app.ui.focus, Focus::SearchResults, "click should focus search results");
-        assert_eq!(app.ui.search.selected_index, 1, "click should select item at row 5");
-        assert!(app.pending_play.is_none(), "single click should NOT trigger play");
+        assert_eq!(
+            app.ui.focus,
+            Focus::SearchResults,
+            "click should focus search results"
+        );
+        assert_eq!(
+            app.ui.search.selected_index, 1,
+            "click should select item at row 5"
+        );
+        assert!(
+            app.pending_play.is_none(),
+            "single click should NOT trigger play"
+        );
     }
 
     #[tokio::test]
@@ -1602,7 +1869,12 @@ mod tests {
         app.ui.focus = Focus::SearchInput;
         app.panel_rects.insert(
             "search_results".to_string(),
-            Rect { x: 0, y: 3, width: 100, height: 30 },
+            Rect {
+                x: 0,
+                y: 3,
+                width: 100,
+                height: 30,
+            },
         );
 
         // First click — select only
@@ -1611,7 +1883,10 @@ mod tests {
 
         // Second click at same position — double-click → play
         app.handle_mouse(click(10, 5));
-        assert!(app.pending_play.is_some(), "double-click should trigger play");
+        assert!(
+            app.pending_play.is_some(),
+            "double-click should trigger play"
+        );
     }
 
     #[tokio::test]
@@ -1627,7 +1902,12 @@ mod tests {
         app.ui.focus = Focus::SearchResults;
         app.panel_rects.insert(
             "queue".to_string(),
-            Rect { x: 0, y: 3, width: 100, height: 30 },
+            Rect {
+                x: 0,
+                y: 3,
+                width: 100,
+                height: 30,
+            },
         );
 
         // First click — select only
@@ -1636,7 +1916,10 @@ mod tests {
 
         // Second click — double-click → play
         app.handle_mouse(click(10, 5));
-        assert!(app.pending_play.is_some(), "double-click in queue should play");
+        assert!(
+            app.pending_play.is_some(),
+            "double-click in queue should play"
+        );
     }
 
     #[tokio::test]
@@ -1649,16 +1932,28 @@ mod tests {
         app.ui.focus = Focus::SearchInput;
         app.panel_rects.insert(
             "search_input".to_string(),
-            Rect { x: 0, y: 0, width: 100, height: 3 },
+            Rect {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 3,
+            },
         );
 
         // Two quick clicks on search input — should focus, not play
         app.handle_mouse(click(10, 1));
-        assert_eq!(app.ui.focus, Focus::SearchInput, "click on input should stay on input");
+        assert_eq!(
+            app.ui.focus,
+            Focus::SearchInput,
+            "click on input should stay on input"
+        );
         assert!(app.pending_play.is_none(), "click on input should not play");
 
         app.handle_mouse(click(10, 1));
-        assert!(app.pending_play.is_none(), "double-click on input should not play");
+        assert!(
+            app.pending_play.is_none(),
+            "double-click on input should not play"
+        );
     }
 
     #[tokio::test]
@@ -1672,7 +1967,12 @@ mod tests {
         app.ui.focus = Focus::SearchInput;
         app.panel_rects.insert(
             "search_results".to_string(),
-            Rect { x: 0, y: 3, width: 100, height: 30 },
+            Rect {
+                x: 0,
+                y: 3,
+                width: 100,
+                height: 30,
+            },
         );
 
         // Should not crash
@@ -1704,7 +2004,12 @@ mod tests {
         app.ui.focus = Focus::SearchInput;
         app.panel_rects.insert(
             "search_results".to_string(),
-            Rect { x: 0, y: 3, width: 100, height: 30 },
+            Rect {
+                x: 0,
+                y: 3,
+                width: 100,
+                height: 30,
+            },
         );
         // Simulate that song at index 1 (id-1) is already playing
         app.ui.player.current_song = Some(song(1));
@@ -1715,7 +2020,10 @@ mod tests {
 
         // Second click — double-click, guard should skip re-play
         app.handle_mouse(click(10, 5));
-        assert!(app.pending_play.is_none(), "double-click on already-playing song should NOT re-download");
+        assert!(
+            app.pending_play.is_none(),
+            "double-click on already-playing song should NOT re-download"
+        );
     }
 
     #[tokio::test]
@@ -1731,7 +2039,12 @@ mod tests {
         app.ui.focus = Focus::SearchResults;
         app.panel_rects.insert(
             "queue".to_string(),
-            Rect { x: 0, y: 3, width: 100, height: 30 },
+            Rect {
+                x: 0,
+                y: 3,
+                width: 100,
+                height: 30,
+            },
         );
         // Simulate that the song at queue index 1 is already playing
         let playing = app.playlist.playlist().songs()[1].clone();
@@ -1743,7 +2056,10 @@ mod tests {
 
         // Second click — guard should skip
         app.handle_mouse(click(10, 5));
-        assert!(app.pending_play.is_none(), "double-click on already-playing queue item should skip");
+        assert!(
+            app.pending_play.is_none(),
+            "double-click on already-playing queue item should skip"
+        );
     }
 
     #[tokio::test]
@@ -1757,19 +2073,30 @@ mod tests {
         app.ui.focus = Focus::SearchInput;
         app.panel_rects.insert(
             "search_results".to_string(),
-            Rect { x: 0, y: 3, width: 100, height: 30 },
+            Rect {
+                x: 0,
+                y: 3,
+                width: 100,
+                height: 30,
+            },
         );
         // Song 0 is playing
         app.ui.player.current_song = Some(song(0));
 
         // Click at row 6 → selects index 2 (song 2 — different from playing)
         app.handle_mouse(click(10, 6));
-        assert_eq!(app.ui.search.selected_index, 2, "click should select song 2");
+        assert_eq!(
+            app.ui.search.selected_index, 2,
+            "click should select song 2"
+        );
         assert!(app.pending_play.is_none(), "first click should not play");
 
         // Second click — double-click on a DIFFERENT song → should play
         app.handle_mouse(click(10, 6));
-        assert!(app.pending_play.is_some(), "double-click on DIFFERENT song should play even if another is playing");
+        assert!(
+            app.pending_play.is_some(),
+            "double-click on DIFFERENT song should play even if another is playing"
+        );
     }
 
     #[tokio::test]
@@ -1783,14 +2110,22 @@ mod tests {
         app.ui.focus = Focus::SearchInput;
         app.panel_rects.insert(
             "search_results".to_string(),
-            Rect { x: 0, y: 3, width: 100, height: 30 },
+            Rect {
+                x: 0,
+                y: 3,
+                width: 100,
+                height: 30,
+            },
         );
         // After an error, current_song is None — replay is allowed
         app.ui.player.current_song = None;
 
         app.handle_mouse(click(10, 5)); // selects index 1
         app.handle_mouse(click(10, 5)); // double-click
-        assert!(app.pending_play.is_some(), "replay after error should be allowed");
+        assert!(
+            app.pending_play.is_some(),
+            "replay after error should be allowed"
+        );
     }
 
     // ── Playback mode toggle (video <-> audio) ─────────────────────────
@@ -2136,7 +2471,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_stale_video_stream_ready_from_old_generation_is_dropped_even_when_mode_and_song_match() {
+    async fn test_stale_video_stream_ready_from_old_generation_is_dropped_even_when_mode_and_song_match()
+     {
         // Scenario: user toggles Video -> Audio -> Video (back to Video). The
         // first Video task (generation 0) resolves AFTER the second toggle.
         // Mode and song both match the fresh playback (generation 2), so only
@@ -2176,7 +2512,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_stale_audio_download_error_from_old_generation_is_dropped_even_when_mode_matches() {
+    async fn test_stale_audio_download_error_from_old_generation_is_dropped_even_when_mode_matches()
+    {
         // Scenario: user toggles Audio -> Video -> Audio (back to Audio). The
         // first Audio task (generation 0) fails AFTER the second toggle. Mode
         // matches the fresh playback (generation 2), so only the generation

@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, BorderType, Paragraph};
-use ratatui::Frame;
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 use crate::application::ports::I18nPort;
 use crate::interface::theme::Theme;
@@ -10,7 +10,9 @@ use crate::interface::theme::Theme;
 pub fn render(frame: &mut Frame, area: Rect, translations: &dyn I18nPort, theme: &Theme) {
     let t = |k: &str| translations.t(k);
 
-    let section_style = Style::default().fg(theme.accent).add_modifier(Modifier::BOLD);
+    let section_style = Style::default()
+        .fg(theme.accent)
+        .add_modifier(Modifier::BOLD);
     let key_style = Style::default().fg(theme.text);
     let muted_style = Style::default().fg(theme.text_muted);
 
@@ -22,16 +24,12 @@ pub fn render(frame: &mut Frame, area: Rect, translations: &dyn I18nPort, theme:
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(t("help_nav"), section_style),
-        ]),
+        Line::from(vec![Span::styled(t("help_nav"), section_style)]),
         Line::from(Span::styled(t("help_nav_tab"), key_style)),
         Line::from(Span::styled(t("help_nav_updown"), key_style)),
         Line::from(Span::styled(t("help_nav_slash"), key_style)),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(t("help_playback"), section_style),
-        ]),
+        Line::from(vec![Span::styled(t("help_playback"), section_style)]),
         Line::from(Span::styled(t("help_playback_enter"), key_style)),
         Line::from(Span::styled(t("help_playback_space"), key_style)),
         Line::from(Span::styled(t("help_playback_n"), key_style)),
@@ -39,29 +37,21 @@ pub fn render(frame: &mut Frame, area: Rect, translations: &dyn I18nPort, theme:
         Line::from(Span::styled(t("help_playback_vol"), key_style)),
         Line::from(Span::styled(t("help_playback_v"), key_style)),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(t("help_queue"), section_style),
-        ]),
+        Line::from(vec![Span::styled(t("help_queue"), section_style)]),
         Line::from(Span::styled(t("help_queue_d"), key_style)),
         Line::from(Span::styled(t("help_queue_c"), key_style)),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(t("help_search"), section_style),
-        ]),
+        Line::from(vec![Span::styled(t("help_search"), section_style)]),
         Line::from(Span::styled(t("help_search_slash"), key_style)),
         Line::from(Span::styled(t("help_search_a"), key_style)),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(t("help_general"), section_style),
-        ]),
+        Line::from(vec![Span::styled(t("help_general"), section_style)]),
         Line::from(Span::styled(t("help_general_esc"), key_style)),
         Line::from(Span::styled(t("help_general_h"), key_style)),
         Line::from(Span::styled(t("help_general_q"), key_style)),
         Line::from(Span::styled(t("help_general_ctrlq"), key_style)),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(t("help_close"), muted_style),
-        ]),
+        Line::from(vec![Span::styled(t("help_close"), muted_style)]),
     ];
 
     let paragraph = Paragraph::new(Text::from(help_text))

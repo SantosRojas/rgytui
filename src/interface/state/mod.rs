@@ -15,8 +15,6 @@ pub use render::*;
 pub use search::*;
 pub use settings::*;
 
-
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UpgradeChoice {
     Yes,

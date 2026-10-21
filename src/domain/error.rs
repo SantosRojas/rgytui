@@ -26,5 +26,3 @@ impl From<serde_json::Error> for DomainError {
         DomainError::Parse(e.to_string())
     }
 }
-
-

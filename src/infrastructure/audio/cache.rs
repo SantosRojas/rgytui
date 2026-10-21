@@ -42,7 +42,8 @@ impl AudioCache {
     pub async fn get(&self, song_id: &str) -> Result<Option<Vec<u8>>, DomainError> {
         let path = self.song_path(song_id);
         if path.exists() {
-            let data = tokio::fs::read(&path).await
+            let data = tokio::fs::read(&path)
+                .await
                 .map_err(|e| DomainError::Other(format!("Failed to read cache: {e}")))?;
             Ok(Some(data))
         } else {
@@ -56,7 +57,8 @@ impl AudioCache {
     /// path. This prevents partial/corrupt cache entries if the write is
     /// interrupted (crash, power loss).
     pub async fn put(&self, song_id: &str, data: &[u8]) -> Result<(), DomainError> {
-        tokio::fs::create_dir_all(&self.cache_dir).await
+        tokio::fs::create_dir_all(&self.cache_dir)
+            .await
             .map_err(|e| DomainError::Other(format!("Failed to create cache dir: {e}")))?;
 
         let final_path = self.song_path(song_id);
@@ -67,7 +69,8 @@ impl AudioCache {
             let _ = tokio::fs::remove_file(&tmp_path).await; // best-effort cleanup
             return Err(DomainError::Other(format!("Failed to write cache: {e}")));
         }
-        tokio::fs::rename(&tmp_path, &final_path).await
+        tokio::fs::rename(&tmp_path, &final_path)
+            .await
             .map_err(|e| DomainError::Other(format!("Failed to finalize cache: {e}")))?;
 
         Ok(())
@@ -78,12 +81,12 @@ impl AudioCache {
         let path = self.song_path(song_id);
         match tokio::fs::metadata(&path).await {
             Ok(_) => {
-                tokio::fs::remove_file(&path).await
+                tokio::fs::remove_file(&path)
+                    .await
                     .map_err(|e| DomainError::Other(format!("Failed to remove cache: {e}")))?;
                 Ok(())
             }
             Err(_) => Ok(()), // file doesn't exist — nothing to remove
         }
     }
-
 }

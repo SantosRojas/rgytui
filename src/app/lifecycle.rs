@@ -1,10 +1,10 @@
 use super::*;
 
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
-use crossterm::terminal::{enable_raw_mode, EnterAlternateScreen};
 use crossterm::ExecutableCommand;
-use ratatui::backend::CrosstermBackend;
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
 
 impl App {
     pub(super) fn init_terminal() -> std::io::Result<Terminal<CrosstermBackend<std::io::Stdout>>> {
@@ -73,8 +73,8 @@ pub(super) struct TerminalGuard;
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        use crossterm::terminal::{disable_raw_mode, LeaveAlternateScreen};
         use crossterm::ExecutableCommand;
+        use crossterm::terminal::{LeaveAlternateScreen, disable_raw_mode};
         disable_raw_mode().ok();
         std::io::stdout().execute(DisableMouseCapture).ok();
         std::io::stdout().execute(LeaveAlternateScreen).ok();

@@ -1,19 +1,27 @@
 use std::collections::HashMap;
 
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::prelude::Widget;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, Clear, List, ListItem, Paragraph};
-use ratatui::Frame;
+use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph};
 
 use crate::domain::loading_animation::LoadingAnimation;
 use crate::interface::components::status_bar::StatusBar;
 use crate::interface::screens::{help_screen, player_screen, search_screen, settings_screen};
-use crate::interface::state::{ActiveScreen, Focus, NotificationLevel, RenderSnapshot, UiState, UpgradeChoice};
+use crate::interface::state::{
+    ActiveScreen, Focus, NotificationLevel, RenderSnapshot, UiState, UpgradeChoice,
+};
 use crate::interface::theme::Theme;
 
-pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme, panel_rects: &mut HashMap<String, Rect>) {
+pub fn render(
+    frame: &mut Frame,
+    state: &UiState,
+    snapshot: &RenderSnapshot,
+    theme: &Theme,
+    panel_rects: &mut HashMap<String, Rect>,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -28,8 +36,16 @@ pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, the
     let status_area = chunks[2];
 
     let mut title_spans = vec![
-        Span::styled(" 🎵 rgytui ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-        Span::styled(state.tr("app_subtitle"), Style::default().fg(theme.text_muted)),
+        Span::styled(
+            " 🎵 rgytui ",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            state.tr("app_subtitle"),
+            Style::default().fg(theme.text_muted),
+        ),
         Span::styled("  ◆  ", Style::default().fg(theme.separator)),
         Span::styled("Santos Rojas", Style::default().fg(theme.accent)),
     ];
@@ -107,31 +123,43 @@ pub fn render(frame: &mut Frame, state: &UiState, snapshot: &RenderSnapshot, the
 
 fn render_download_popup(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
     let formats = [
-        ("m4a",  state.tr("fmt_aac")),
-        ("mp3",  state.tr("fmt_mp3")),
+        ("m4a", state.tr("fmt_aac")),
+        ("mp3", state.tr("fmt_mp3")),
         ("opus", state.tr("fmt_opus")),
         ("flac", state.tr("fmt_flac")),
-        ("wav",  state.tr("fmt_wav")),
+        ("wav", state.tr("fmt_wav")),
     ];
 
-    let items: Vec<ListItem> = formats.iter().enumerate().map(|(i, (name, desc))| {
-        let selected = i == state.download.download_format;
-        let content = Line::from(vec![
-            Span::styled(
-                format!(" {:4} ", name),
-                Style::default().fg(if selected { theme.text } else { theme.text_muted }),
-            ),
-            Span::styled(
-                desc.clone(),
-                Style::default().fg(if selected { theme.text } else { theme.text_secondary }),
-            ),
-        ]);
-        ListItem::new(content).style(if selected {
-            Style::default().bg(Color::Rgb(45, 45, 55))
-        } else {
-            Style::default()
+    let items: Vec<ListItem> = formats
+        .iter()
+        .enumerate()
+        .map(|(i, (name, desc))| {
+            let selected = i == state.download.download_format;
+            let content = Line::from(vec![
+                Span::styled(
+                    format!(" {:4} ", name),
+                    Style::default().fg(if selected {
+                        theme.text
+                    } else {
+                        theme.text_muted
+                    }),
+                ),
+                Span::styled(
+                    desc.clone(),
+                    Style::default().fg(if selected {
+                        theme.text
+                    } else {
+                        theme.text_secondary
+                    }),
+                ),
+            ]);
+            ListItem::new(content).style(if selected {
+                Style::default().bg(Color::Rgb(45, 45, 55))
+            } else {
+                Style::default()
+            })
         })
-    }).collect();
+        .collect();
 
     let popup = List::new(items)
         .block(
@@ -156,17 +184,24 @@ fn render_exit_confirmation_popup(frame: &mut Frame, area: Rect, state: &UiState
             state.tr("confirm_exit"),
             Style::default().fg(theme.text),
         )),
-        Line::from(Span::styled(
-            "",
-            Style::default(),
-        )),
+        Line::from(Span::styled("", Style::default())),
         Line::from(vec![
             Span::styled("  [", Style::default().fg(theme.text_muted)),
-            Span::styled("y", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "y",
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("] ", Style::default().fg(theme.text_muted)),
             Span::styled(state.tr("yes"), Style::default().fg(theme.text_secondary)),
             Span::styled("    [", Style::default().fg(theme.text_muted)),
-            Span::styled("n", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "n",
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("] ", Style::default().fg(theme.text_muted)),
             Span::styled(state.tr("no"), Style::default().fg(theme.text_secondary)),
         ]),
@@ -201,7 +236,9 @@ fn render_upgrade_popup(
         .map(|(v, _)| v.as_str())
         .unwrap_or("??");
 
-    let sel = Style::default().fg(theme.accent).add_modifier(Modifier::BOLD);
+    let sel = Style::default()
+        .fg(theme.accent)
+        .add_modifier(Modifier::BOLD);
     let idle = Style::default().fg(theme.text_muted);
     let text_style = Style::default().fg(theme.text_secondary);
 
@@ -253,11 +290,17 @@ fn render_upgrade_popup(
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
-    Rect { x, y, width, height }
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
 }
 
 fn render_notifications(frame: &mut Frame, area: Rect, state: &UiState, theme: &Theme) {
-    let notifications: Vec<&crate::interface::state::Notification> = state.active_notifications().collect();
+    let notifications: Vec<&crate::interface::state::Notification> =
+        state.active_notifications().collect();
     if notifications.is_empty() {
         return;
     }
@@ -274,10 +317,10 @@ fn render_notifications(frame: &mut Frame, area: Rect, state: &UiState, theme: &
         y_offset = y_offset.saturating_sub(notif_height);
 
         let (border_color, bg_color) = match notification.level {
-            NotificationLevel::Info    => (theme.accent, Color::Rgb(20, 25, 45)),
+            NotificationLevel::Info => (theme.accent, Color::Rgb(20, 25, 45)),
             NotificationLevel::Success => (theme.success, Color::Rgb(20, 50, 25)),
             NotificationLevel::Warning => (theme.warning, Color::Rgb(50, 45, 20)),
-            NotificationLevel::Error   => (theme.error, Color::Rgb(50, 20, 20)),
+            NotificationLevel::Error => (theme.error, Color::Rgb(50, 20, 20)),
         };
 
         let notif_area = Rect {
@@ -290,29 +333,33 @@ fn render_notifications(frame: &mut Frame, area: Rect, state: &UiState, theme: &
         let text = Line::from(vec![
             Span::styled(
                 format!(" {} ", notification.icon()),
-                Style::default().fg(border_color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(border_color)
+                    .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                &notification.message,
-                Style::default().fg(theme.text),
-            ),
+            Span::styled(&notification.message, Style::default().fg(theme.text)),
         ]);
 
-        let widget = Paragraph::new(text)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(border_color))
-                    .style(Style::default().bg(bg_color)),
-            );
+        let widget = Paragraph::new(text).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(border_color))
+                .style(Style::default().bg(bg_color)),
+        );
 
         frame.render_widget(Clear, notif_area);
         frame.render_widget(widget, notif_area);
     }
 }
 
-fn render_hybrid(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
+fn render_hybrid(
+    frame: &mut Frame,
+    area: Rect,
+    state: &UiState,
+    snapshot: &RenderSnapshot,
+    theme: &Theme,
+) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Ratio(35, 100), Constraint::Ratio(65, 100)])
@@ -322,20 +369,29 @@ fn render_hybrid(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &Rend
     render_right_panel(frame, chunks[1], state, snapshot, theme);
 }
 
-fn render_left_panel(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
+fn render_left_panel(
+    frame: &mut Frame,
+    area: Rect,
+    state: &UiState,
+    snapshot: &RenderSnapshot,
+    theme: &Theme,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Ratio(50, 100),
-            Constraint::Ratio(50, 100),
-        ])
+        .constraints([Constraint::Ratio(50, 100), Constraint::Ratio(50, 100)])
         .split(area);
 
     render_now_playing(frame, chunks[0], state, snapshot, theme);
     render_queue(frame, chunks[1], state, snapshot, theme);
 }
 
-fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
+fn render_now_playing(
+    frame: &mut Frame,
+    area: Rect,
+    state: &UiState,
+    snapshot: &RenderSnapshot,
+    theme: &Theme,
+) {
     use crate::interface::components::loading::LoadingWidget;
 
     let inner_area = {
@@ -354,20 +410,29 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, snapshot: 
 
     if is_loading {
         // Show modern loading animation instead of song info + spectrum
-        let loading = LoadingWidget::new(state.player.spinner_frame, theme.accent, LoadingAnimation)
-            .message(state.player.loading_status.clone().unwrap_or_else(|| state.tr("player_loading")));
+        let loading =
+            LoadingWidget::new(state.player.spinner_frame, theme.accent, LoadingAnimation).message(
+                state
+                    .player
+                    .loading_status
+                    .clone()
+                    .unwrap_or_else(|| state.tr("player_loading")),
+            );
         frame.render_widget(loading, inner_area);
     } else if let Some(ref song) = state.player.current_song {
         let status_icon = match snapshot.player_state {
             crate::domain::player_state::PlayerState::Playing => "▶",
-            crate::domain::player_state::PlayerState::Paused  => "⏸",
+            crate::domain::player_state::PlayerState::Paused => "⏸",
             crate::domain::player_state::PlayerState::Loading => "⟳",
-            _                                                   => "⏹",
+            _ => "⏹",
         };
 
         let lines = vec![
             Line::from(vec![
-                Span::styled(format!(" {} ", status_icon), Style::default().fg(theme.accent)),
+                Span::styled(
+                    format!(" {} ", status_icon),
+                    Style::default().fg(theme.accent),
+                ),
                 Span::styled(
                     &song.title,
                     Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
@@ -382,9 +447,13 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, snapshot: 
                 Span::styled(&song.channel, Style::default().fg(theme.text_secondary)),
             ]),
             Line::from(Span::styled(
-                format!("  {:02}:{:02} / {:02}:{:02}",
-                    snapshot.progress as u64 / 60, snapshot.progress as u64 % 60,
-                    snapshot.duration as u64 / 60, snapshot.duration as u64 % 60),
+                format!(
+                    "  {:02}:{:02} / {:02}:{:02}",
+                    snapshot.progress as u64 / 60,
+                    snapshot.progress as u64 % 60,
+                    snapshot.duration as u64 / 60,
+                    snapshot.duration as u64 % 60
+                ),
                 Style::default().fg(theme.warning),
             )),
         ];
@@ -397,7 +466,12 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, snapshot: 
                 .split(inner_area);
             frame.render_widget(paragraph, sub[0]);
 
-            let spectrum = crate::interface::components::spectrum::SpectrumWidget::new(snapshot.spectrum.bands, snapshot.spectrum.peaks, theme.accent).no_block();
+            let spectrum = crate::interface::components::spectrum::SpectrumWidget::new(
+                snapshot.spectrum.bands,
+                snapshot.spectrum.peaks,
+                theme.accent,
+            )
+            .no_block();
             frame.render_widget(spectrum, sub[1]);
         } else {
             frame.render_widget(paragraph, inner_area);
@@ -415,7 +489,13 @@ fn render_now_playing(frame: &mut Frame, area: Rect, state: &UiState, snapshot: 
     }
 }
 
-fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
+fn render_queue(
+    frame: &mut Frame,
+    area: Rect,
+    state: &UiState,
+    snapshot: &RenderSnapshot,
+    theme: &Theme,
+) {
     let border_color = if state.focus == Focus::QueueList {
         theme.border_active
     } else {
@@ -437,7 +517,10 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &Rende
 
     // Approach B: derive scroll_offset from queue_selected at render time
     let scroll_offset = if total_items > visible_height {
-        state.queue.queue_selected.min(total_items.saturating_sub(visible_height))
+        state
+            .queue
+            .queue_selected
+            .min(total_items.saturating_sub(visible_height))
     } else {
         0
     };
@@ -450,7 +533,9 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &Rende
 
     let queue_title = format!(
         " 📋 {}{} ",
-        state.tr("queue_title").replace("{}", &total_items.to_string()),
+        state
+            .tr("queue_title")
+            .replace("{}", &total_items.to_string()),
         position_indicator,
     );
 
@@ -525,6 +610,12 @@ fn render_queue(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &Rende
     frame.render_widget(list, inner_area);
 }
 
-fn render_right_panel(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
+fn render_right_panel(
+    frame: &mut Frame,
+    area: Rect,
+    state: &UiState,
+    snapshot: &RenderSnapshot,
+    theme: &Theme,
+) {
     search_screen::render(frame, area, state, snapshot, theme);
 }

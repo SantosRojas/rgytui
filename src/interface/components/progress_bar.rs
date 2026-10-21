@@ -52,10 +52,9 @@ impl ProgressBar {
 
 impl Widget for ProgressBar {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let block = self.block.unwrap_or_else(|| {
-            Block::default()
-                .borders(Borders::NONE)
-        });
+        let block = self
+            .block
+            .unwrap_or_else(|| Block::default().borders(Borders::NONE));
 
         let inner = block.inner(area);
         block.render(area, buf);
@@ -76,7 +75,7 @@ impl Widget for ProgressBar {
         );
 
         // Layout: "  00:00 ━━━━●─────── 03:45  "
-        let time_left_width = pos_str.len() + 2;  // "  00:00 "
+        let time_left_width = pos_str.len() + 2; // "  00:00 "
         let time_right_width = dur_str.len() + 2; // " 03:45  "
         let bar_width = (inner.width as usize).saturating_sub(time_left_width + time_right_width);
 
@@ -97,10 +96,17 @@ impl Widget for ProgressBar {
         let line = Line::from(vec![
             Span::styled(
                 format!("  {} ", pos_str),
-                Style::default().fg(self.accent).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(self.accent)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(&filled_str, Style::default().fg(self.accent)),
-            Span::styled("●", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "●",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(&empty_str, Style::default().fg(Color::Rgb(55, 55, 65))),
             Span::styled(
                 format!(" {}  ", dur_str),

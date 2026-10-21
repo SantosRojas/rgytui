@@ -30,7 +30,9 @@ impl App {
                 self.ui.search.selected_index = 0;
                 self.ui.focus = Focus::SearchResults;
                 self.ui.push_notification(
-                    self.ui.tr("notif_search_count").replace("{}", &count.to_string()),
+                    self.ui
+                        .tr("notif_search_count")
+                        .replace("{}", &count.to_string()),
                     NotificationLevel::Info,
                 );
             }
@@ -46,7 +48,10 @@ impl App {
                 // This arm exists only for future event-driven use.
                 // Keep it as a no-op to avoid double-advance bugs.
             }
-            AppEvent::PlaybackError { message, generation } => {
+            AppEvent::PlaybackError {
+                message,
+                generation,
+            } => {
                 // Video stream resolution failed in a background task. Ignore
                 // it if a newer play superseded it (generation bump) or the
                 // mode flipped since (the task belongs to the old mode) —
@@ -88,7 +93,11 @@ impl App {
                     NotificationLevel::Error,
                 );
             }
-            AppEvent::AudioReady { song, data, generation } => {
+            AppEvent::AudioReady {
+                song,
+                data,
+                generation,
+            } => {
                 // Drop stale events: the song was switched away, the playback
                 // mode changed after the download started, or the task belongs
                 // to an older play generation (a mode toggle re-queues the
@@ -114,7 +123,10 @@ impl App {
                 }
                 match self.playback.play_bytes(data, song) {
                     Ok(()) => {
-                        self.ui.push_notification(self.ui.tr("notif_playing"), NotificationLevel::Info);
+                        self.ui.push_notification(
+                            self.ui.tr("notif_playing"),
+                            NotificationLevel::Info,
+                        );
                     }
                     Err(e) => {
                         self.ui.push_notification(
@@ -126,7 +138,10 @@ impl App {
                 }
                 self.ui.player.loading_status = None;
             }
-            AppEvent::AudioDownloadError { message, generation } => {
+            AppEvent::AudioDownloadError {
+                message,
+                generation,
+            } => {
                 // Background audio download failed. Ignore it if a newer play
                 // superseded it or the mode flipped to Video since — clearing
                 // current_song would abort the fresh playback just started.
@@ -142,7 +157,11 @@ impl App {
                 self.ui.player.loading_status = None;
                 self.ui.player.current_song = None;
             }
-            AppEvent::VideoStreamReady { song, stream_url, generation } => {
+            AppEvent::VideoStreamReady {
+                song,
+                stream_url,
+                generation,
+            } => {
                 // Drop stale events from a mode toggle or song switch — the
                 // stream belongs to the old mode/selection, or the task is
                 // from an older play generation. Without this, a leftover
@@ -181,10 +200,8 @@ impl App {
             }
             AppEvent::ShowConfirmExit => {
                 self.ui.show_exit_confirmation = true;
-                self.ui.push_notification(
-                    self.ui.tr("confirm_exit"),
-                    NotificationLevel::Warning,
-                );
+                self.ui
+                    .push_notification(self.ui.tr("confirm_exit"), NotificationLevel::Warning);
             }
             AppEvent::UpgradeAvailable(version, url) => {
                 self.ui.pending_upgrade = Some((version, url));

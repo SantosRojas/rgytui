@@ -27,12 +27,14 @@ impl Translations {
             _ => include_str!("translations/en.json"),
         };
 
-        let map: HashMap<String, String> = serde_json::from_str(json_str)
-            .unwrap_or_else(|e| {
-                tracing::warn!("Failed to parse translations for '{}': {}. Falling back to English.", lang, e);
-                serde_json::from_str(include_str!("translations/en.json"))
-                    .unwrap_or_default()
-            });
+        let map: HashMap<String, String> = serde_json::from_str(json_str).unwrap_or_else(|e| {
+            tracing::warn!(
+                "Failed to parse translations for '{}': {}. Falling back to English.",
+                lang,
+                e
+            );
+            serde_json::from_str(include_str!("translations/en.json")).unwrap_or_default()
+        });
 
         Self {
             map,
@@ -41,7 +43,10 @@ impl Translations {
     }
 
     pub fn t(&self, key: &str) -> String {
-        self.map.get(key).cloned().unwrap_or_else(|| key.to_string())
+        self.map
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| key.to_string())
     }
 }
 
@@ -71,8 +76,11 @@ mod tests {
         let t = Translations::load("es");
         // "app_subtitle" has different values in es vs en
         let subtitle = t.t("app_subtitle");
-        assert_eq!(subtitle, "Reproductor de Música YouTube",
-            "Spanish subtitle should be translated, got '{}'", subtitle);
+        assert_eq!(
+            subtitle, "Reproductor de Música YouTube",
+            "Spanish subtitle should be translated, got '{}'",
+            subtitle
+        );
     }
 
     #[test]
@@ -94,12 +102,21 @@ mod tests {
         use crate::application::ports::I18nPort;
         let t = Translations::load(&Translations::detect_locale());
         let lang = t.language();
-        assert!(!lang.is_empty(), "auto-detected language should not be empty");
-        assert!(lang == "en" || lang == "es",
-            "auto-detected language should be 'en' or 'es', got '{}'", lang);
+        assert!(
+            !lang.is_empty(),
+            "auto-detected language should not be empty"
+        );
+        assert!(
+            lang == "en" || lang == "es",
+            "auto-detected language should be 'en' or 'es', got '{}'",
+            lang
+        );
         // Translations should be loaded correctly
         let subtitle = t.t("app_subtitle");
-        assert!(!subtitle.is_empty(), "auto-loaded translations should have 'app_subtitle' key");
+        assert!(
+            !subtitle.is_empty(),
+            "auto-loaded translations should have 'app_subtitle' key"
+        );
     }
 
     #[test]

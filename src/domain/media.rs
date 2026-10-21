@@ -284,7 +284,10 @@ mod tests {
 
     #[test]
     fn playlist_next_wraps_with_repeat_all() {
-        let mut p = Playlist { repeat_mode: RepeatMode::All, ..Default::default() };
+        let mut p = Playlist {
+            repeat_mode: RepeatMode::All,
+            ..Default::default()
+        };
         p.add(song("a"));
         p.add(song("b"));
         p.next();
@@ -319,7 +322,10 @@ mod tests {
 
     #[test]
     fn playlist_previous_wraps_with_repeat_all() {
-        let mut p = Playlist { repeat_mode: RepeatMode::All, ..Default::default() };
+        let mut p = Playlist {
+            repeat_mode: RepeatMode::All,
+            ..Default::default()
+        };
         p.add(song("a"));
         p.add(song("b"));
         p.previous(); // at 0, wraps to end
@@ -479,7 +485,10 @@ mod tests {
         for m in [RepeatMode::None, RepeatMode::All, RepeatMode::One] {
             let ser = serde_json::to_string(&m).unwrap();
             let expected = serde_json::to_string(m.as_str()).unwrap();
-            assert_eq!(ser, expected, "as_str must match serde discriminant for {m:?}");
+            assert_eq!(
+                ser, expected,
+                "as_str must match serde discriminant for {m:?}"
+            );
         }
     }
 

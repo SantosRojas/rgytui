@@ -8,7 +8,11 @@ impl AudioMode {
     /// Convert a `bool` (from config) to `AudioMode`.
     /// `true` → `Video`, `false` → `Audio`.
     pub fn from_bool(v: bool) -> Self {
-        if v { AudioMode::Video } else { AudioMode::Audio }
+        if v {
+            AudioMode::Video
+        } else {
+            AudioMode::Audio
+        }
     }
 }
 

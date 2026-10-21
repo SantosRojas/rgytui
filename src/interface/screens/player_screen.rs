@@ -1,18 +1,24 @@
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, Paragraph};
-use ratatui::Frame;
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
-use crate::domain::player_state::PlayerState;
 use crate::domain::loading_animation::LoadingAnimation;
+use crate::domain::player_state::PlayerState;
 use crate::interface::components::loading::LoadingWidget;
 use crate::interface::components::progress_bar::ProgressBar;
 use crate::interface::components::spectrum::SpectrumWidget;
 use crate::interface::state::{RenderSnapshot, UiState};
 use crate::interface::theme::Theme;
 
-pub fn render(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderSnapshot, theme: &Theme) {
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    state: &UiState,
+    snapshot: &RenderSnapshot,
+    theme: &Theme,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -30,9 +36,9 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderS
 
     let status_icon = match snapshot.player_state {
         PlayerState::Playing => "▶",
-        PlayerState::Paused  => "⏸",
+        PlayerState::Paused => "⏸",
         PlayerState::Loading => "⟳",
-        _                    => "⏹",
+        _ => "⏹",
     };
 
     let status = if state.player.loading_status.is_some() {
@@ -47,10 +53,15 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderS
     };
 
     let header = Paragraph::new(Line::from(vec![
-        Span::styled(format!(" {} ", status_icon), Style::default().fg(theme.accent)),
+        Span::styled(
+            format!(" {} ", status_icon),
+            Style::default().fg(theme.accent),
+        ),
         Span::styled(
             status,
-            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
         ),
     ]))
     .block(
@@ -66,10 +77,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderS
         let spinner = state.spinner_char();
         let loading_text = Paragraph::new(Line::from(vec![
             Span::styled(format!(" {} ", spinner), Style::default().fg(theme.warning)),
-            Span::styled(
-                loading,
-                Style::default().fg(theme.warning),
-            ),
+            Span::styled(loading, Style::default().fg(theme.warning)),
         ]))
         .block(
             Block::default()
@@ -94,9 +102,13 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderS
                 Span::styled(&song.channel, Style::default().fg(theme.text_secondary)),
             ]),
             Line::from(Span::styled(
-                format!("  {:02}:{:02} / {:02}:{:02}",
-                    snapshot.progress as u64 / 60, snapshot.progress as u64 % 60,
-                    snapshot.duration as u64 / 60, snapshot.duration as u64 % 60),
+                format!(
+                    "  {:02}:{:02} / {:02}:{:02}",
+                    snapshot.progress as u64 / 60,
+                    snapshot.progress as u64 % 60,
+                    snapshot.duration as u64 / 60,
+                    snapshot.duration as u64 % 60
+                ),
                 Style::default().fg(theme.warning),
             )),
         ])
@@ -121,11 +133,22 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, snapshot: &RenderS
     }
 
     if state.player.loading_status.is_some() || state.player.current_song.is_none() {
-        let loading = LoadingWidget::new(state.player.spinner_frame, theme.accent, LoadingAnimation)
-            .message(state.player.loading_status.clone().unwrap_or_else(|| state.tr("player_loading")));
+        let loading =
+            LoadingWidget::new(state.player.spinner_frame, theme.accent, LoadingAnimation).message(
+                state
+                    .player
+                    .loading_status
+                    .clone()
+                    .unwrap_or_else(|| state.tr("player_loading")),
+            );
         frame.render_widget(loading, spectrum_area);
     } else {
-        let spectrum = SpectrumWidget::new(snapshot.spectrum.bands, snapshot.spectrum.peaks, theme.accent).no_block();
+        let spectrum = SpectrumWidget::new(
+            snapshot.spectrum.bands,
+            snapshot.spectrum.peaks,
+            theme.accent,
+        )
+        .no_block();
         frame.render_widget(spectrum, spectrum_area);
     }
 

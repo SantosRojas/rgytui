@@ -21,9 +21,8 @@ fn hann_window() -> &'static [f32; FFT_SIZE] {
     WINDOW.get_or_init(|| {
         let mut w = [0.0; FFT_SIZE];
         for (i, coeff) in w.iter_mut().enumerate() {
-            *coeff = 0.5
-                * (1.0
-                    - (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos());
+            *coeff =
+                0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos());
         }
         w
     })
@@ -56,7 +55,9 @@ fn get_or_init_band_to_bin(sample_rate: u32) -> [f32; BANDS] {
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    *cache.entry(sample_rate).or_insert_with(|| compute_band_to_bin(sample_rate))
+    *cache
+        .entry(sample_rate)
+        .or_insert_with(|| compute_band_to_bin(sample_rate))
 }
 
 fn get_fft_plan() -> Arc<dyn Fft<f32>> {

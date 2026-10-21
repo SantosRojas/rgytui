@@ -16,7 +16,11 @@ impl App {
                     self.ui.show_exit_confirmation = false;
                     Ok(true)
                 }
-                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+                KeyCode::Char('n')
+                | KeyCode::Char('N')
+                | KeyCode::Char('q')
+                | KeyCode::Char('Q')
+                | KeyCode::Esc => {
                     self.ui.show_exit_confirmation = false;
                     Ok(false)
                 }
@@ -69,7 +73,9 @@ impl App {
                     self.ui.focus = Focus::SearchInput;
                 }
                 ActiveScreen::Search => {
-                    if self.ui.focus == Focus::SearchInput && !self.ui.search.search_query.is_empty() {
+                    if self.ui.focus == Focus::SearchInput
+                        && !self.ui.search.search_query.is_empty()
+                    {
                         self.ui.search.search_query.clear();
                     } else {
                         self.ui.focus = match self.ui.focus {
@@ -109,15 +115,13 @@ impl App {
             KeyCode::Right => {
                 self.ui.upgrade_selection = UpgradeChoice::No;
             }
-            KeyCode::Enter => {
-                match self.ui.upgrade_selection {
-                    UpgradeChoice::Yes => self.start_upgrade(),
-                    UpgradeChoice::No => {
-                        self.ui.show_upgrade_popup = false;
-                        self.ui.pending_upgrade = None;
-                    }
+            KeyCode::Enter => match self.ui.upgrade_selection {
+                UpgradeChoice::Yes => self.start_upgrade(),
+                UpgradeChoice::No => {
+                    self.ui.show_upgrade_popup = false;
+                    self.ui.pending_upgrade = None;
                 }
-            }
+            },
             // Backward compat: y/Y also confirms, n/N/Esc dismisses
             KeyCode::Char('y') | KeyCode::Char('Y') => self.start_upgrade(),
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
@@ -135,10 +139,8 @@ impl App {
         self.ui.show_upgrade_popup = false;
         self.ui.is_upgrading = true;
         self.ui.upgrade_selection = UpgradeChoice::Yes; // reset for next time
-        self.ui.push_notification(
-            self.ui.tr("upgrade_downloading"),
-            NotificationLevel::Info,
-        );
+        self.ui
+            .push_notification(self.ui.tr("upgrade_downloading"), NotificationLevel::Info);
         if let Some((version, url)) = self.ui.pending_upgrade.take() {
             let event_tx = self.event_tx.clone();
             tokio::spawn(async move {
@@ -165,7 +167,8 @@ impl App {
     fn handle_download_popup_key(&mut self, key: KeyEvent) -> Result<bool, anyhow::Error> {
         match key.code {
             KeyCode::Up => {
-                self.ui.download.download_format = self.ui.download.download_format.saturating_sub(1);
+                self.ui.download.download_format =
+                    self.ui.download.download_format.saturating_sub(1);
             }
             KeyCode::Down => {
                 self.ui.download.download_format = (self.ui.download.download_format + 1).min(4);
@@ -235,15 +238,16 @@ impl App {
                     };
                     self.ui.invalidate_theme();
                     self.ui.push_notification(
-                        self.ui.tr("notif_theme").replace("{}", &self.ui.config.theme_name),
+                        self.ui
+                            .tr("notif_theme")
+                            .replace("{}", &self.ui.config.theme_name),
                         NotificationLevel::Info,
                     );
                 }
                 1 => {
                     const PRESETS: &[&str] = &[
-                        "#00ddff", "#ff77aa", "#55ff77", "#ffaa22",
-                        "#aa66ff", "#ff6644", "#44ddff", "#ff44aa",
-                        "#88dd00", "#00ffbb", "#dd88ff", "#ffbb33",
+                        "#00ddff", "#ff77aa", "#55ff77", "#ffaa22", "#aa66ff", "#ff6644",
+                        "#44ddff", "#ff44aa", "#88dd00", "#00ffbb", "#dd88ff", "#ffbb33",
                         "#33ffaa", "#ff8833", "#6699ff", "#ff5599",
                     ];
                     let i = PRESETS
@@ -253,10 +257,8 @@ impl App {
                         .unwrap_or(0);
                     self.ui.config.accent_color = PRESETS[i].to_string();
                     self.ui.invalidate_theme();
-                    self.ui.push_notification(
-                        self.ui.tr("notif_accent"),
-                        NotificationLevel::Info,
-                    );
+                    self.ui
+                        .push_notification(self.ui.tr("notif_accent"), NotificationLevel::Info);
                 }
                 4 => {
                     // Try native file dialog; fall back gracefully in headless
@@ -288,7 +290,8 @@ impl App {
                     } else {
                         "es".into()
                     };
-                    self.ui.config.translations = Arc::new(Translations::load(&self.ui.config.language));
+                    self.ui.config.translations =
+                        Arc::new(Translations::load(&self.ui.config.language));
                 }
                 6 => {
                     // Mirror the player-screen 'v' key: toggle mode via
@@ -320,7 +323,8 @@ impl App {
                         RepeatMode::All => "notif_repeat_all",
                         RepeatMode::One => "notif_repeat_one",
                     };
-                    self.ui.push_notification(self.ui.tr(key), NotificationLevel::Info);
+                    self.ui
+                        .push_notification(self.ui.tr(key), NotificationLevel::Info);
                 }
                 _ => {}
             },
@@ -341,12 +345,8 @@ impl App {
                     self.playback.set_volume(vol);
                 }
                 3 => {
-                    self.ui.config.default_search_limit = self
-                        .ui
-                        .config
-                        .default_search_limit
-                        .saturating_sub(5)
-                        .max(1);
+                    self.ui.config.default_search_limit =
+                        self.ui.config.default_search_limit.saturating_sub(5).max(1);
                 }
                 _ => {}
             },
@@ -369,10 +369,8 @@ impl App {
             KeyCode::Char(' ') => match self.playback.state() {
                 PlayerState::Playing => {
                     if self.playback.pause().is_ok() {
-                        self.ui.push_notification(
-                            self.ui.tr("notif_paused"),
-                            NotificationLevel::Info,
-                        );
+                        self.ui
+                            .push_notification(self.ui.tr("notif_paused"), NotificationLevel::Info);
                     }
                 }
                 PlayerState::Paused => {
@@ -402,13 +400,15 @@ impl App {
                     RepeatMode::All => "notif_repeat_all",
                     RepeatMode::One => "notif_repeat_one",
                 };
-                self.ui.push_notification(self.ui.tr(key), NotificationLevel::Info);
+                self.ui
+                    .push_notification(self.ui.tr(key), NotificationLevel::Info);
             }
             KeyCode::Char('=') | KeyCode::Char('+') => {
                 let vol = (self.playback.volume() + 0.05).min(1.0);
                 self.playback.set_volume(vol);
                 self.ui.push_notification(
-                    self.ui.tr("notif_volume")
+                    self.ui
+                        .tr("notif_volume")
                         .replace("{:.0}", &format!("{:.0}", vol * 100.0)),
                     NotificationLevel::Info,
                 );
@@ -417,7 +417,8 @@ impl App {
                 let vol = (self.playback.volume() - 0.05).max(0.0);
                 self.playback.set_volume(vol);
                 self.ui.push_notification(
-                    self.ui.tr("notif_volume")
+                    self.ui
+                        .tr("notif_volume")
                         .replace("{:.0}", &format!("{:.0}", vol * 100.0)),
                     NotificationLevel::Info,
                 );
@@ -470,9 +471,9 @@ impl App {
                     }
                     // Playback controls
                     KeyCode::Char(' ')
-                    | KeyCode::Char('n' | 'p' | 'r' | '=' | '+' | '-' | '_' | 'v' | 's' | 'q' | 'Q') => {
-                        self.handle_playback_controls(key).await
-                    }
+                    | KeyCode::Char(
+                        'n' | 'p' | 'r' | '=' | '+' | '-' | '_' | 'v' | 's' | 'q' | 'Q',
+                    ) => self.handle_playback_controls(key).await,
                     // Queue actions (including Enter and plain d)
                     KeyCode::Enter | KeyCode::Delete | KeyCode::Char('a' | 'd' | 'C' | 'c') => {
                         self.handle_queue_actions(key).await
@@ -549,10 +550,12 @@ impl App {
                 // k — Up in lists
                 match self.ui.focus {
                     Focus::SearchResults => {
-                        self.ui.search.selected_index = self.ui.search.selected_index.saturating_sub(1);
+                        self.ui.search.selected_index =
+                            self.ui.search.selected_index.saturating_sub(1);
                     }
                     Focus::QueueList if !self.playlist.songs().is_empty() => {
-                        self.ui.queue.queue_selected = self.ui.queue.queue_selected.saturating_sub(1);
+                        self.ui.queue.queue_selected =
+                            self.ui.queue.queue_selected.saturating_sub(1);
                     }
                     _ => {}
                 }
@@ -617,8 +620,7 @@ impl App {
                     }
                     Focus::QueueList => {
                         let max = self.playlist.songs().len().saturating_sub(1);
-                        self.ui.queue.queue_selected =
-                            (self.ui.queue.queue_selected + 10).min(max);
+                        self.ui.queue.queue_selected = (self.ui.queue.queue_selected + 10).min(max);
                     }
                     _ => {}
                 }
@@ -662,10 +664,8 @@ impl App {
             KeyCode::Char(' ') => match self.playback.state() {
                 PlayerState::Playing => {
                     if self.playback.pause().is_ok() {
-                        self.ui.push_notification(
-                            self.ui.tr("notif_paused"),
-                            NotificationLevel::Info,
-                        );
+                        self.ui
+                            .push_notification(self.ui.tr("notif_paused"), NotificationLevel::Info);
                     }
                 }
                 PlayerState::Paused => {
@@ -698,13 +698,15 @@ impl App {
                     RepeatMode::All => "notif_repeat_all",
                     RepeatMode::One => "notif_repeat_one",
                 };
-                self.ui.push_notification(self.ui.tr(key), NotificationLevel::Info);
+                self.ui
+                    .push_notification(self.ui.tr(key), NotificationLevel::Info);
             }
             KeyCode::Char('=') | KeyCode::Char('+') => {
                 let vol = (self.playback.volume() + 0.05).min(1.0);
                 self.playback.set_volume(vol);
                 self.ui.push_notification(
-                    self.ui.tr("notif_volume")
+                    self.ui
+                        .tr("notif_volume")
                         .replace("{:.0}", &format!("{:.0}", vol * 100.0)),
                     NotificationLevel::Info,
                 );
@@ -713,7 +715,8 @@ impl App {
                 let vol = (self.playback.volume() - 0.05).max(0.0);
                 self.playback.set_volume(vol);
                 self.ui.push_notification(
-                    self.ui.tr("notif_volume")
+                    self.ui
+                        .tr("notif_volume")
                         .replace("{:.0}", &format!("{:.0}", vol * 100.0)),
                     NotificationLevel::Info,
                 );
@@ -753,12 +756,15 @@ impl App {
                 _ => {}
             },
             KeyCode::Char('a') => {
-                if self.ui.focus == Focus::SearchResults && !self.ui.search.search_results.is_empty() {
+                if self.ui.focus == Focus::SearchResults
+                    && !self.ui.search.search_results.is_empty()
+                {
                     let idx = self.ui.search.selected_index;
                     if let Some(song) = self.ui.search.search_results.get(idx) {
                         if self.playlist.songs().iter().any(|s| s.id == song.id) {
                             self.ui.push_notification(
-                                self.ui.tr("notif_already_in_queue")
+                                self.ui
+                                    .tr("notif_already_in_queue")
                                     .replace("{}", &song.title),
                                 NotificationLevel::Warning,
                             );
@@ -767,7 +773,8 @@ impl App {
                             self.playlist.add(song.clone());
                             self.try_save_playlist().await;
                             self.ui.push_notification(
-                                self.ui.tr("notif_added_to_queue")
+                                self.ui
+                                    .tr("notif_added_to_queue")
                                     .replace("{}", &song.title),
                                 NotificationLevel::Success,
                             );
@@ -792,12 +799,19 @@ impl App {
             KeyCode::Char('d') => {
                 match self.ui.focus {
                     Focus::SearchResults => {
-                        self.ui.download.download_song =
-                            self.ui.search.search_results.get(self.ui.search.selected_index).cloned();
+                        self.ui.download.download_song = self
+                            .ui
+                            .search
+                            .search_results
+                            .get(self.ui.search.selected_index)
+                            .cloned();
                     }
                     Focus::QueueList => {
-                        self.ui.download.download_song =
-                            self.playlist.songs().get(self.ui.queue.queue_selected).cloned();
+                        self.ui.download.download_song = self
+                            .playlist
+                            .songs()
+                            .get(self.ui.queue.queue_selected)
+                            .cloned();
                     }
                     _ => {}
                 }

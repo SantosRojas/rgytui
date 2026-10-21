@@ -23,7 +23,11 @@ pub fn run_uninstall() -> Result<(), anyhow::Error> {
     let repo_dir = home.join("repo");
 
     // Determine the binary name for the current platform
-    let target_name = if cfg!(windows) { "rgytui.exe" } else { "rgytui" };
+    let target_name = if cfg!(windows) {
+        "rgytui.exe"
+    } else {
+        "rgytui"
+    };
     let binary_path = bin_dir.join(target_name);
 
     // Confirm
@@ -48,7 +52,7 @@ pub fn run_uninstall() -> Result<(), anyhow::Error> {
 
     // Ask about optional dependency removal (default no for both)
     let remove_ytdlp = if skip_prompt {
-        true  // --yes: remove everything
+        true // --yes: remove everything
     } else {
         eprint!("Remove yt-dlp? (used by rgytui for downloads) [y/N] ");
         std::io::stderr().flush()?;
@@ -58,7 +62,7 @@ pub fn run_uninstall() -> Result<(), anyhow::Error> {
     };
 
     let remove_mpv = if skip_prompt {
-        true  // --yes: remove everything
+        true // --yes: remove everything
     } else {
         eprint!("Remove mpv? (used by rgytui for video playback) [y/N] ");
         std::io::stderr().flush()?;
@@ -83,17 +87,29 @@ pub fn run_uninstall() -> Result<(), anyhow::Error> {
 
     #[cfg(windows)]
     {
-        uninstall_windows(&home, &bin_dir, &repo_dir, &binary_path, remove_ytdlp, remove_mpv)?;
+        uninstall_windows(
+            &home,
+            &bin_dir,
+            &repo_dir,
+            &binary_path,
+            remove_ytdlp,
+            remove_mpv,
+        )?;
     }
     #[cfg(not(windows))]
     {
-        uninstall_unix(&home, &bin_dir, &repo_dir, &binary_path, remove_ytdlp, remove_mpv)?;
+        uninstall_unix(
+            &home,
+            &bin_dir,
+            &repo_dir,
+            &binary_path,
+            remove_ytdlp,
+            remove_mpv,
+        )?;
     }
 
     // Remove config data (after platform uninstall so the script file is gone first)
-    if remove_config
-        && let Some(ref dir) = config_dir
-    {
+    if remove_config && let Some(ref dir) = config_dir {
         remove_config_dir(dir);
     }
 
@@ -243,10 +259,14 @@ fn uninstall_unix(
     // from ~/.local/bin could delete user-owned tools, so we only tell the
     // user how to remove them. The shared bin dir itself is never removed.
     if remove_ytdlp {
-        eprintln!("  ℹ  yt-dlp is managed by your package manager; remove it there (e.g. 'apt remove yt-dlp' / 'brew uninstall yt-dlp').");
+        eprintln!(
+            "  ℹ  yt-dlp is managed by your package manager; remove it there (e.g. 'apt remove yt-dlp' / 'brew uninstall yt-dlp')."
+        );
     }
     if remove_mpv {
-        eprintln!("  ℹ  mpv is managed by your package manager; remove it there (e.g. 'apt remove mpv' / 'brew uninstall mpv').");
+        eprintln!(
+            "  ℹ  mpv is managed by your package manager; remove it there (e.g. 'apt remove mpv' / 'brew uninstall mpv')."
+        );
     }
 
     // Remove binary (symlink or file)
@@ -303,8 +323,7 @@ fn uninstall_unix(
 
 /// Returns the config directory used by ConfigAdapter (settings + playlists).
 fn config_dir_path() -> Option<PathBuf> {
-    directories::ProjectDirs::from("com", "rgytui", "rgytui")
-        .map(|d| d.config_dir().to_path_buf())
+    directories::ProjectDirs::from("com", "rgytui", "rgytui").map(|d| d.config_dir().to_path_buf())
 }
 
 /// Remove the config directory and print result.

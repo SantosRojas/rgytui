@@ -23,7 +23,12 @@ impl Notification {
             NotificationLevel::Error => Duration::from_secs(8),
             _ => Duration::from_secs(4),
         };
-        Self { message, level, timestamp: Instant::now(), duration }
+        Self {
+            message,
+            level,
+            timestamp: Instant::now(),
+            duration,
+        }
     }
 
     pub fn icon(&self) -> &'static str {
@@ -47,11 +52,14 @@ pub struct NotificationState {
 
 impl NotificationState {
     pub fn new() -> Self {
-        Self { notifications: VecDeque::new() }
+        Self {
+            notifications: VecDeque::new(),
+        }
     }
 
     pub fn push(&mut self, message: String, level: NotificationLevel) {
-        self.notifications.push_back(Notification::new(message, level));
+        self.notifications
+            .push_back(Notification::new(message, level));
         if self.notifications.len() > 5 {
             self.notifications.pop_front();
         }

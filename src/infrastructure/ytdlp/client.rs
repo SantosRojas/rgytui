@@ -2,8 +2,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-
-
 use crate::application::ports::{DownloaderPort, MediaSearchPort};
 use crate::domain::error::DomainError;
 use crate::domain::media::{RawSong, Song};
@@ -58,15 +56,12 @@ impl YtDlpAdapter {
                 .output(),
         )
         .await
-            .map_err(|_| DomainError::YtDlp("yt-dlp search timed out after 30s".into()))?
-            .map_err(|e| DomainError::YtDlp(format!("Failed to run yt-dlp: {}", e)))?;
+        .map_err(|_| DomainError::YtDlp("yt-dlp search timed out after 30s".into()))?
+        .map_err(|e| DomainError::YtDlp(format!("Failed to run yt-dlp: {}", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(DomainError::YtDlp(format!(
-                "yt-dlp error: {}",
-                stderr
-            )));
+            return Err(DomainError::YtDlp(format!("yt-dlp error: {}", stderr)));
         }
 
         // Parse JSON lines from yt-dlp output
@@ -111,8 +106,8 @@ impl YtDlpAdapter {
                 .output(),
         )
         .await
-            .map_err(|_| DomainError::YtDlp("yt-dlp stream URL timed out after 30s".into()))?
-            .map_err(|e| DomainError::YtDlp(format!("Failed to get stream URL: {}", e)))?;
+        .map_err(|_| DomainError::YtDlp("yt-dlp stream URL timed out after 30s".into()))?
+        .map_err(|e| DomainError::YtDlp(format!("Failed to get stream URL: {}", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -122,9 +117,7 @@ impl YtDlpAdapter {
             )));
         }
 
-        let stream_url = String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .to_string();
+        let stream_url = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
         if stream_url.is_empty() {
             return Err(DomainError::YtDlp("Empty stream URL".into()));
@@ -139,7 +132,10 @@ impl YtDlpAdapter {
         output_dir: &str,
         audio_format: &str,
     ) -> Result<String, DomainError> {
-        let output_template = format!("{}/%(title)s.%(ext)s", output_dir.trim_end_matches(['/', '\\']));
+        let output_template = format!(
+            "{}/%(title)s.%(ext)s",
+            output_dir.trim_end_matches(['/', '\\'])
+        );
 
         let mut cmd = tokio::process::Command::new("yt-dlp");
         cmd.arg("-f").arg("bestaudio/best");
@@ -211,12 +207,15 @@ impl DownloaderPort for YtDlpAdapter {
                 .output(),
         )
         .await
-            .map_err(|_| DomainError::YtDlp("Audio download timed out after 120s".into()))?
-            .map_err(|e| DomainError::YtDlp(format!("Failed to run yt-dlp: {}", e)))?;
+        .map_err(|_| DomainError::YtDlp("Audio download timed out after 120s".into()))?
+        .map_err(|e| DomainError::YtDlp(format!("Failed to run yt-dlp: {}", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(DomainError::YtDlp(format!("Audio download failed: {}", stderr)));
+            return Err(DomainError::YtDlp(format!(
+                "Audio download failed: {}",
+                stderr
+            )));
         }
 
         Ok(output.stdout)
@@ -288,6 +287,9 @@ mod tests {
             .await
             .expect("should execute");
 
-        assert!(output.status.success(), "successful command should exit zero");
+        assert!(
+            output.status.success(),
+            "successful command should exit zero"
+        );
     }
 }

@@ -19,7 +19,9 @@ use tracing_subscriber::EnvFilter;
 use crate::app::App;
 use crate::application::playback::PlaybackUseCase;
 use crate::application::playlist::PlaylistUseCase;
-use crate::application::ports::{AudioPlaybackPort, ConfigPort, DownloaderPort, I18nPort, MediaSearchPort};
+use crate::application::ports::{
+    AudioPlaybackPort, ConfigPort, DownloaderPort, I18nPort, MediaSearchPort,
+};
 use crate::application::search::SearchUseCase;
 use crate::domain::audio_mode::AudioMode;
 use crate::infrastructure::audio::mpv_backend::MpvAdapter;
@@ -37,7 +39,8 @@ async fn main() -> Result<(), anyhow::Error> {
     }
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,symphonia=error")),
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info,symphonia=error")),
         )
         // The TUI owns stdout (alternate screen + raw mode), so logs must never
         // be written there: a warn/error mid-render would inject raw text into
@@ -49,14 +52,19 @@ async fn main() -> Result<(), anyhow::Error> {
 
     tracing::info!("rgytui v{} starting", env!("CARGO_PKG_VERSION"));
 
-    let mut config = ConfigAdapter::new().await.context("Failed to load config")?;
+    let mut config = ConfigAdapter::new()
+        .await
+        .context("Failed to load config")?;
     let settings = config.settings().clone();
     let ytdlp = YtDlpAdapter::new();
     let audio: Box<dyn AudioPlaybackPort> = match RodioAdapter::new() {
         Ok(a) => Box::new(a),
         Err(e) => {
-            tracing::warn!("Audio output unavailable ({}), running without sound. Use audio mode  \
-                           to play audio once a device is available.", e);
+            tracing::warn!(
+                "Audio output unavailable ({}), running without sound. Use audio mode  \
+                           to play audio once a device is available.",
+                e
+            );
             Box::new(NoopAudioAdapter)
         }
     };
@@ -122,9 +130,7 @@ fn open_log_writer() -> Box<dyn std::io::Write + Send + Sync> {
         .map(|d| d.config_dir().to_path_buf())
         .or_else(|| {
             // Same fallback as ConfigAdapter for sandboxed/container environments.
-            std::env::current_dir()
-                .ok()
-                .map(|dir| dir.join(".rgytui"))
+            std::env::current_dir().ok().map(|dir| dir.join(".rgytui"))
         });
     let Some(config_dir) = config_dir else {
         return Box::new(std::io::sink());
@@ -138,7 +144,10 @@ fn open_log_writer() -> Box<dyn std::io::Write + Send + Sync> {
 /// the null device so logging never crashes startup.
 fn open_log_writer_in(dir: &Path) -> Box<dyn std::io::Write + Send + Sync> {
     if let Err(e) = std::fs::create_dir_all(dir) {
-        eprintln!("Warning: cannot create log directory {}: {e}", dir.display());
+        eprintln!(
+            "Warning: cannot create log directory {}: {e}",
+            dir.display()
+        );
         return Box::new(std::io::sink());
     }
     let path = dir.join(LOG_FILE_NAME);
@@ -146,7 +155,10 @@ fn open_log_writer_in(dir: &Path) -> Box<dyn std::io::Write + Send + Sync> {
     // session never exceeds the cap again. This runs before the TUI takes raw
     // mode, so a stderr warning here cannot corrupt the interface.
     if let Err(e) = rotate_if_needed(&path, LOG_MAX_BYTES) {
-        eprintln!("Warning: cannot rotate oversized log {}: {e}", path.display());
+        eprintln!(
+            "Warning: cannot rotate oversized log {}: {e}",
+            path.display()
+        );
     }
     match RotatingLogWriter::open(path.clone()) {
         Ok(writer) => Box::new(writer),
@@ -346,7 +358,10 @@ mod tests {
         drop(writer);
 
         let content = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
-        assert!(content.starts_with("first line\n"), "must append, not truncate");
+        assert!(
+            content.starts_with("first line\n"),
+            "must append, not truncate"
+        );
         assert!(content.ends_with("second line\n"));
     }
 
@@ -489,10 +504,7 @@ mod tests {
         );
         drop(writer);
 
-        assert!(
-            old.is_dir(),
-            "the blocked .old must not have been replaced"
-        );
+        assert!(old.is_dir(), "the blocked .old must not have been replaced");
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "abcdefgh",

@@ -51,7 +51,10 @@ mod tests {
 
     #[test]
     fn default_repeat_mode_is_none() {
-        assert_eq!(AppSettings::default().repeat_mode, RepeatMode::None.as_str());
+        assert_eq!(
+            AppSettings::default().repeat_mode,
+            RepeatMode::None.as_str()
+        );
     }
 
     #[test]
@@ -63,7 +66,10 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         let back: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.repeat_mode, RepeatMode::All.as_str());
-        assert_eq!(back.repeat_mode.parse::<RepeatMode>().unwrap(), RepeatMode::All);
+        assert_eq!(
+            back.repeat_mode.parse::<RepeatMode>().unwrap(),
+            RepeatMode::All
+        );
     }
 
     #[test]

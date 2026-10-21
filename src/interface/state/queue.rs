@@ -5,9 +5,7 @@ pub struct QueueViewState {
 
 impl QueueViewState {
     pub fn new() -> Self {
-        Self {
-            queue_selected: 0,
-        }
+        Self { queue_selected: 0 }
     }
 }
 

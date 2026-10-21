@@ -16,7 +16,12 @@ pub struct PlaybackUseCase {
 }
 
 impl PlaybackUseCase {
-    pub fn new(downloader: Arc<dyn DownloaderPort>, audio: Box<dyn AudioPlaybackPort>, mpv: MpvAdapter, mode: AudioMode) -> Self {
+    pub fn new(
+        downloader: Arc<dyn DownloaderPort>,
+        audio: Box<dyn AudioPlaybackPort>,
+        mpv: MpvAdapter,
+        mode: AudioMode,
+    ) -> Self {
         Self {
             downloader,
             audio,
@@ -60,7 +65,11 @@ impl PlaybackUseCase {
     }
 
     /// Play video from a pre-resolved stream URL (non-blocking, spawns mpv).
-    pub async fn play_video_stream(&mut self, stream_url: &str, song: Song) -> Result<(), DomainError> {
+    pub async fn play_video_stream(
+        &mut self,
+        stream_url: &str,
+        song: Song,
+    ) -> Result<(), DomainError> {
         self.mpv.play_video(stream_url, song).await
     }
 
@@ -138,7 +147,11 @@ mod tests {
 
     #[async_trait]
     impl DownloaderPort for MockDownloader {
-        async fn get_stream_url(&self, _url: &str, _audio_only: bool) -> Result<String, DomainError> {
+        async fn get_stream_url(
+            &self,
+            _url: &str,
+            _audio_only: bool,
+        ) -> Result<String, DomainError> {
             Ok(String::new())
         }
         async fn download_audio_bytes(&self, _url: &str) -> Result<Vec<u8>, DomainError> {
@@ -235,7 +248,9 @@ mod tests {
         }
         fn set_spectrum_enabled(&mut self, _enabled: bool) {}
         fn check_health(&mut self) -> Result<(), DomainError> {
-            Err(DomainError::Audio("Audio device lost. Playback stopped.".into()))
+            Err(DomainError::Audio(
+                "Audio device lost. Playback stopped.".into(),
+            ))
         }
     }
 
@@ -255,7 +270,9 @@ mod tests {
         }
 
         fn new_with(notice: RouteChangeNotice) -> Self {
-            Self { notice: Some(notice) }
+            Self {
+                notice: Some(notice),
+            }
         }
     }
 
@@ -304,7 +321,12 @@ mod tests {
     }
 
     fn build_playback(audio: Box<dyn AudioPlaybackPort>) -> PlaybackUseCase {
-        PlaybackUseCase::new(Arc::new(MockDownloader), audio, MpvAdapter::new(), AudioMode::Audio)
+        PlaybackUseCase::new(
+            Arc::new(MockDownloader),
+            audio,
+            MpvAdapter::new(),
+            AudioMode::Audio,
+        )
     }
 
     #[test]
@@ -371,7 +393,10 @@ mod tests {
 
         tokio::fs::write(&path, &data).await.unwrap();
         let read_back = tokio::fs::read(&path).await.unwrap();
-        assert_eq!(read_back, data, "async file write/read round-trip should match");
+        assert_eq!(
+            read_back, data,
+            "async file write/read round-trip should match"
+        );
     }
 
     #[tokio::test]
@@ -385,7 +410,10 @@ mod tests {
         let file_path = nested.join("test.txt");
         tokio::fs::write(&file_path, b"hello").await.unwrap();
 
-        assert!(file_path.exists(), "file should exist after async create_dir_all + write");
+        assert!(
+            file_path.exists(),
+            "file should exist after async create_dir_all + write"
+        );
         let content = tokio::fs::read_to_string(&file_path).await.unwrap();
         assert_eq!(content, "hello");
     }

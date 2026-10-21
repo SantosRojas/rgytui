@@ -199,14 +199,20 @@ mod tests {
     fn audio_playback_port_pause_resume_cycle() {
         let mut mock = MockAudioPlayback::new();
         // Start playing
-        assert!(mock.play_bytes(vec![0u8; 100], Song {
-            id: "t".into(),
-            title: "T".into(),
-            channel: "".into(),
-            duration: 0.0,
-            thumbnail: None,
-            webpage_url: "".into(),
-        }).is_ok());
+        assert!(
+            mock.play_bytes(
+                vec![0u8; 100],
+                Song {
+                    id: "t".into(),
+                    title: "T".into(),
+                    channel: "".into(),
+                    duration: 0.0,
+                    thumbnail: None,
+                    webpage_url: "".into(),
+                }
+            )
+            .is_ok()
+        );
         assert_eq!(mock.state(), PlayerState::Playing);
         // Pause
         assert!(mock.pause().is_ok());
@@ -219,14 +225,20 @@ mod tests {
     #[test]
     fn audio_playback_port_stop_transitions_to_stopped() {
         let mut mock = MockAudioPlayback::new();
-        assert!(mock.play_bytes(vec![], Song {
-            id: "x".into(),
-            title: "X".into(),
-            channel: "".into(),
-            duration: 0.0,
-            thumbnail: None,
-            webpage_url: "".into(),
-        }).is_ok());
+        assert!(
+            mock.play_bytes(
+                vec![],
+                Song {
+                    id: "x".into(),
+                    title: "X".into(),
+                    channel: "".into(),
+                    duration: 0.0,
+                    thumbnail: None,
+                    webpage_url: "".into(),
+                }
+            )
+            .is_ok()
+        );
         assert!(mock.stop().is_ok());
         assert_eq!(mock.state(), PlayerState::Stopped);
     }
@@ -261,7 +273,11 @@ mod tests {
 
     #[async_trait]
     impl DownloaderPort for MockDownloader {
-        async fn get_stream_url(&self, _url: &str, _audio_only: bool) -> Result<String, DomainError> {
+        async fn get_stream_url(
+            &self,
+            _url: &str,
+            _audio_only: bool,
+        ) -> Result<String, DomainError> {
             Ok("https://example.com/stream".into())
         }
         async fn download_audio_bytes(&self, _url: &str) -> Result<Vec<u8>, DomainError> {
@@ -280,21 +296,30 @@ mod tests {
     #[tokio::test]
     async fn downloader_port_get_stream_url_returns_url() {
         let mock = MockDownloader;
-        let url = mock.get_stream_url("https://youtube.com/watch?v=test", true).await.unwrap();
+        let url = mock
+            .get_stream_url("https://youtube.com/watch?v=test", true)
+            .await
+            .unwrap();
         assert!(url.starts_with("http"));
     }
 
     #[tokio::test]
     async fn downloader_port_download_audio_bytes_returns_data() {
         let mock = MockDownloader;
-        let data = mock.download_audio_bytes("https://youtube.com/watch?v=test").await.unwrap();
+        let data = mock
+            .download_audio_bytes("https://youtube.com/watch?v=test")
+            .await
+            .unwrap();
         assert!(!data.is_empty(), "should return non-empty bytes");
     }
 
     #[tokio::test]
     async fn downloader_port_download_returns_path() {
         let mock = MockDownloader;
-        let path = mock.download("https://youtube.com/watch?v=test", "/tmp", "mp3").await.unwrap();
+        let path = mock
+            .download("https://youtube.com/watch?v=test", "/tmp", "mp3")
+            .await
+            .unwrap();
         assert!(!path.is_empty());
     }
 

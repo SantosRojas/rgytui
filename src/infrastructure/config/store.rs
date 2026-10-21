@@ -189,7 +189,10 @@ mod tests {
         };
         // This should succeed by creating the directory
         config.save_settings().await.unwrap();
-        assert!(settings_path.exists(), "settings.json should have been created");
+        assert!(
+            settings_path.exists(),
+            "settings.json should have been created"
+        );
     }
 
     #[tokio::test]

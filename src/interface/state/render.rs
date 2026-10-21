@@ -43,5 +43,4 @@ impl RenderSnapshot {
             0.0
         }
     }
-
 }

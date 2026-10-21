@@ -15,7 +15,8 @@ impl App {
         // freezing forever on the next play action.
         if let Err(e) = self.playback.check_health() {
             tracing::warn!("Playback health check failed: {e}");
-            self.handle_event(AppEvent::PlaybackHealthError(e.to_string())).await;
+            self.handle_event(AppEvent::PlaybackHealthError(e.to_string()))
+                .await;
             return;
         }
 
@@ -51,9 +52,7 @@ impl App {
                 tracing::warn!("Failed to stop on auto-advance: {}", e);
             }
 
-            if self.playlist.repeat_mode() == RepeatMode::One
-                && self.playlist.has_current_song()
-            {
+            if self.playlist.repeat_mode() == RepeatMode::One && self.playlist.has_current_song() {
                 // Repeat-one: replay the same song
                 self.ui.player.current_song = None;
                 if let Some(song) = self.playlist.current_song_cloned() {
@@ -84,7 +83,10 @@ impl App {
             self.playlist.set_current_index(idx);
             if let Some(song) = self.playlist.current_song_cloned() {
                 if self.guard_already_playing(&song.id) {
-                    self.ui.push_notification(self.ui.tr("notif_already_playing"), NotificationLevel::Info);
+                    self.ui.push_notification(
+                        self.ui.tr("notif_already_playing"),
+                        NotificationLevel::Info,
+                    );
                     return;
                 }
                 self.queue_play(song);
@@ -105,7 +107,8 @@ impl App {
         // Don't re-play the same song if it's already playing/paused/loading.
         // Re-play is only allowed after an error (current_song = None).
         if self.guard_already_playing(&song.id) {
-            self.ui.push_notification(self.ui.tr("notif_already_playing"), NotificationLevel::Info);
+            self.ui
+                .push_notification(self.ui.tr("notif_already_playing"), NotificationLevel::Info);
             return;
         }
 

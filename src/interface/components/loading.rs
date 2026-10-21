@@ -140,7 +140,13 @@ fn render_pulse(buf: &mut Buffer, area: Rect, frame: usize, accent_rgb: (u8, u8,
 
 const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-fn render_message_bar(buf: &mut Buffer, area: Rect, frame: usize, message: &str, accent_rgb: (u8, u8, u8)) {
+fn render_message_bar(
+    buf: &mut Buffer,
+    area: Rect,
+    frame: usize,
+    message: &str,
+    accent_rgb: (u8, u8, u8),
+) {
     if area.height == 0 || message.is_empty() {
         return;
     }
@@ -152,7 +158,8 @@ fn render_message_bar(buf: &mut Buffer, area: Rect, frame: usize, message: &str,
     let line = Line::from(vec![
         Span::styled(
             format!(" {} ", spinner),
-            Style::default().fg(Color::Rgb(accent_rgb.0, accent_rgb.1, accent_rgb.2))
+            Style::default()
+                .fg(Color::Rgb(accent_rgb.0, accent_rgb.1, accent_rgb.2))
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(message, Style::default().fg(msg_color)),

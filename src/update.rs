@@ -72,16 +72,22 @@ fn detect_asset_name() -> Result<String, anyhow::Error> {
     match os {
         "linux" => match arch {
             "x86_64" => Ok("rgytui-x86_64-unknown-linux-gnu.tar.gz".into()),
-            _ => anyhow::bail!("Unsupported architecture '{arch}' for Linux. Only x86_64 is available."),
+            _ => anyhow::bail!(
+                "Unsupported architecture '{arch}' for Linux. Only x86_64 is available."
+            ),
         },
         "macos" => match arch {
             "x86_64" => Ok("rgytui-x86_64-apple-darwin.tar.gz".into()),
             "aarch64" => Ok("rgytui-aarch64-apple-darwin.tar.gz".into()),
-            _ => anyhow::bail!("Unsupported architecture '{arch}' for macOS. Only x86_64 and aarch64 are available."),
+            _ => anyhow::bail!(
+                "Unsupported architecture '{arch}' for macOS. Only x86_64 and aarch64 are available."
+            ),
         },
         "windows" => match arch {
             "x86_64" => Ok("rgytui-x86_64-pc-windows-msvc.zip".into()),
-            _ => anyhow::bail!("Unsupported architecture '{arch}' for Windows. Only x86_64 is available."),
+            _ => anyhow::bail!(
+                "Unsupported architecture '{arch}' for Windows. Only x86_64 is available."
+            ),
         },
         _ => anyhow::bail!("Unsupported OS '{os}'. Only Linux, macOS, and Windows are supported."),
     }
@@ -125,9 +131,7 @@ struct Asset {
 }
 
 fn fetch_latest_release() -> Result<Release, anyhow::Error> {
-    let url = format!(
-        "https://api.github.com/repos/{GH_OWNER}/{GH_REPO}/releases/latest"
-    );
+    let url = format!("https://api.github.com/repos/{GH_OWNER}/{GH_REPO}/releases/latest");
     let mut response = ureq::get(&url)
         .header("User-Agent", UA)
         .header("Accept", "application/json")
@@ -172,11 +176,7 @@ fn download(url: &str) -> Result<Vec<u8>, anyhow::Error> {
 
 // ── Extraction ────────────────────────────────────────────────────────────────
 
-fn extract_binary(
-    archive: &[u8],
-    ext: &str,
-    binary_name: &str,
-) -> Result<Vec<u8>, anyhow::Error> {
+fn extract_binary(archive: &[u8], ext: &str, binary_name: &str) -> Result<Vec<u8>, anyhow::Error> {
     match ext {
         ".tar.gz" => extract_from_tar_gz(archive, binary_name),
         ".zip" => extract_from_zip(archive, binary_name),
@@ -190,11 +190,7 @@ fn extract_from_tar_gz(archive: &[u8], binary_name: &str) -> Result<Vec<u8>, any
     for entry in tar.entries()? {
         let mut entry = entry?;
         let path = entry.path()?;
-        if path
-            .file_name()
-            .map(|n| n == binary_name)
-            .unwrap_or(false)
-        {
+        if path.file_name().map(|n| n == binary_name).unwrap_or(false) {
             let mut buf = Vec::with_capacity(entry.size() as usize);
             entry.read_to_end(&mut buf)?;
             return Ok(buf);
@@ -224,11 +220,7 @@ fn extract_from_zip(archive: &[u8], binary_name: &str) -> Result<Vec<u8>, anyhow
 
 // ── Install ───────────────────────────────────────────────────────────────────
 
-fn install_binary(
-    binary_bytes: &[u8],
-    dst: &Path,
-    version: &str,
-) -> Result<(), anyhow::Error> {
+fn install_binary(binary_bytes: &[u8], dst: &Path, version: &str) -> Result<(), anyhow::Error> {
     if let Err(e) = std::fs::write(dst, binary_bytes) {
         if cfg!(windows) {
             tracing::warn!("Direct write failed ({e}), scheduling delayed replace...");
@@ -357,8 +349,9 @@ fn staging_is_valid(staging: &Path, dst: &Path) -> bool {
     if file.read_exact(&mut dos).is_err() || &dos[0..2] != b"MZ" {
         return false;
     }
-    let pe_offset =
-        u64::from(u32::from_le_bytes([dos[0x3C], dos[0x3D], dos[0x3E], dos[0x3F]]));
+    let pe_offset = u64::from(u32::from_le_bytes([
+        dos[0x3C], dos[0x3D], dos[0x3E], dos[0x3F],
+    ]));
     if pe_offset == 0 || pe_offset + 4 > size {
         return false;
     }
@@ -410,7 +403,10 @@ mod tests {
     #[test]
     fn detect_asset_linux_x86_64() {
         // We can't mock std::env::consts, but we can test the extension helper
-        assert_eq!(asset_extension("rgytui-x86_64-unknown-linux-gnu.tar.gz"), ".tar.gz");
+        assert_eq!(
+            asset_extension("rgytui-x86_64-unknown-linux-gnu.tar.gz"),
+            ".tar.gz"
+        );
     }
 
     #[test]
@@ -420,12 +416,18 @@ mod tests {
 
     #[test]
     fn detect_asset_macos_arm() {
-        assert_eq!(asset_extension("rgytui-aarch64-apple-darwin.tar.gz"), ".tar.gz");
+        assert_eq!(
+            asset_extension("rgytui-aarch64-apple-darwin.tar.gz"),
+            ".tar.gz"
+        );
     }
 
     #[test]
     fn detect_asset_macos_intel() {
-        assert_eq!(asset_extension("rgytui-x86_64-apple-darwin.tar.gz"), ".tar.gz");
+        assert_eq!(
+            asset_extension("rgytui-x86_64-apple-darwin.tar.gz"),
+            ".tar.gz"
+        );
     }
 
     #[test]
@@ -473,11 +475,23 @@ mod tests {
             "script must wait for rgytui.exe to exit"
         );
         assert!(script.contains(":wait"), "script must have a wait loop");
-        assert!(script.contains("goto wait"), "script must loop while running");
+        assert!(
+            script.contains("goto wait"),
+            "script must loop while running"
+        );
         // Deferred limit: 300 attempts, then give up for this session.
-        assert!(script.contains("set /a tries"), "script must count attempts");
-        assert!(script.contains("geq 300"), "script must cap the wait at 300 tries");
-        assert!(script.contains(":deferred"), "script must have a deferred path");
+        assert!(
+            script.contains("set /a tries"),
+            "script must count attempts"
+        );
+        assert!(
+            script.contains("geq 300"),
+            "script must cap the wait at 300 tries"
+        );
+        assert!(
+            script.contains(":deferred"),
+            "script must have a deferred path"
+        );
         // Copy must target the given staging and destination paths.
         assert!(
             script.contains("copy /y \"C:\\rgytui\\rgytui.new.exe\""),
@@ -487,7 +501,10 @@ mod tests {
         for needle in [":copy", ":done", "del \"%~f0\""] {
             assert!(script.contains(needle), "script should contain {needle:?}");
         }
-        assert!(!script.contains("pause"), "script must not pause waiting on the user");
+        assert!(
+            !script.contains("pause"),
+            "script must not pause waiting on the user"
+        );
         assert!(
             !script.contains("echo ✓"),
             "script must not contain an un-redirected checkmark echo"

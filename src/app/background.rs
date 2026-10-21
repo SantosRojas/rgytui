@@ -45,17 +45,21 @@ impl App {
                         let result = downloader.get_stream_url(&url, false).await;
                         match result {
                             Ok(stream_url) => {
-                                let _ = tx.send(AppEvent::VideoStreamReady {
-                                    song: song_for_event,
-                                    stream_url,
-                                    generation,
-                                }).await;
+                                let _ = tx
+                                    .send(AppEvent::VideoStreamReady {
+                                        song: song_for_event,
+                                        stream_url,
+                                        generation,
+                                    })
+                                    .await;
                             }
                             Err(e) => {
-                                let _ = tx.send(AppEvent::PlaybackError {
-                                    message: e.to_string(),
-                                    generation,
-                                }).await;
+                                let _ = tx
+                                    .send(AppEvent::PlaybackError {
+                                        message: e.to_string(),
+                                        generation,
+                                    })
+                                    .await;
                             }
                         }
                     });
@@ -73,7 +77,13 @@ impl App {
                         // Fast path: try cache first (local read — no cancellation needed)
                         match cache.get(&song_id).await {
                             Ok(Some(data)) => {
-                                let _ = tx.send(AppEvent::AudioReady { song: song_for_event, data, generation }).await;
+                                let _ = tx
+                                    .send(AppEvent::AudioReady {
+                                        song: song_for_event,
+                                        data,
+                                        generation,
+                                    })
+                                    .await;
                                 return;
                             }
                             Ok(None) => {} // cache miss → download

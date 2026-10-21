@@ -1,14 +1,20 @@
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, List, ListItem};
-use ratatui::Frame;
+use ratatui::widgets::{Block, BorderType, Borders, List, ListItem};
 
 use crate::interface::components::input_box::InputBox;
 use crate::interface::state::{Focus, RenderSnapshot, UiState};
 use crate::interface::theme::Theme;
 
-pub fn render(frame: &mut Frame, area: Rect, state: &UiState, _snapshot: &RenderSnapshot, theme: &Theme) {
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    state: &UiState,
+    _snapshot: &RenderSnapshot,
+    theme: &Theme,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(1)])
@@ -18,7 +24,11 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, _snapshot: &Render
     let results_area = chunks[1];
 
     let title = if state.search.is_searching {
-        format!(" {} {} ", state.spinner_char(), state.tr("search_searching"))
+        format!(
+            " {} {} ",
+            state.spinner_char(),
+            state.tr("search_searching")
+        )
     } else {
         format!(" 🔍 {} ", state.tr("search_title"))
     };
@@ -49,7 +59,10 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, _snapshot: &Render
 
     // Approach B: derive scroll_offset from selected_index at render time
     let scroll_offset = if total_items > visible_height {
-        state.search.selected_index.min(total_items.saturating_sub(visible_height))
+        state
+            .search
+            .selected_index
+            .min(total_items.saturating_sub(visible_height))
     } else {
         0
     };
@@ -62,7 +75,9 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, _snapshot: &Render
 
     let count_text = format!(
         " ♫ {}{} ",
-        state.tr("search_results").replace("{}", &total_items.to_string()),
+        state
+            .tr("search_results")
+            .replace("{}", &total_items.to_string()),
         position_indicator,
     );
 
@@ -78,25 +93,53 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, _snapshot: &Render
             let content = vec![Line::from(vec![
                 Span::styled(
                     format!(" {:2}. ", i + 1),
-                    Style::default().fg(if i == state.search.selected_index { theme.highlight_fg } else { theme.text_muted }),
+                    Style::default().fg(if i == state.search.selected_index {
+                        theme.highlight_fg
+                    } else {
+                        theme.text_muted
+                    }),
                 ),
                 Span::styled(
                     &song.title,
                     Style::default()
-                        .fg(if i == state.search.selected_index { theme.highlight_fg } else { theme.text })
+                        .fg(if i == state.search.selected_index {
+                            theme.highlight_fg
+                        } else {
+                            theme.text
+                        })
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(" — ", Style::default().fg(if i == state.search.selected_index { theme.highlight_fg } else { theme.separator })),
-                Span::styled(&song.channel, Style::default().fg(if i == state.search.selected_index { theme.highlight_fg } else { theme.text_secondary })),
+                Span::styled(
+                    " — ",
+                    Style::default().fg(if i == state.search.selected_index {
+                        theme.highlight_fg
+                    } else {
+                        theme.separator
+                    }),
+                ),
+                Span::styled(
+                    &song.channel,
+                    Style::default().fg(if i == state.search.selected_index {
+                        theme.highlight_fg
+                    } else {
+                        theme.text_secondary
+                    }),
+                ),
                 Span::raw(" "),
                 Span::styled(
                     format!("[{}]", duration),
-                    Style::default().fg(if i == state.search.selected_index { theme.highlight_fg } else { theme.warning }),
+                    Style::default().fg(if i == state.search.selected_index {
+                        theme.highlight_fg
+                    } else {
+                        theme.warning
+                    }),
                 ),
             ])];
 
             ListItem::new(content).style(if i == state.search.selected_index {
-                Style::default().bg(theme.highlight_bg).fg(theme.highlight_fg)
+                Style::default()
+                    .bg(theme.highlight_bg)
+                    .fg(theme.highlight_fg)
             } else {
                 Style::default()
             })
@@ -109,14 +152,13 @@ pub fn render(frame: &mut Frame, area: Rect, state: &UiState, _snapshot: &Render
         theme.border_inactive
     };
 
-    let results_list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .title(count_text)
-                .border_style(Style::default().fg(border_color)),
-        );
+    let results_list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title(count_text)
+            .border_style(Style::default().fg(border_color)),
+    );
 
     frame.render_widget(results_list, results_area);
 }
